@@ -1,0 +1,27 @@
+{
+  "name": "openclaw-mcp-termux",
+  "version": "0.1.0",
+  "description": "MCP server bridge for OpenClaw — built for Android/Termux, no Docker required",
+  "type": "module",
+  "bin": {
+    "openclaw-mcp-termux": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "start:remote": "node dist/index.js --transport http"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
