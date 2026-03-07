@@ -175,17 +175,18 @@ export class OpenClawGatewayClient {
 
             // If they didn't provide it, let's try to guess the most likely location in Termux
             if (!openclawBin) {
-                // If we're running inside the custom OpenClaw node environment you mentioned:
-                // /data/data/com.termux/files/home/.openclaw-android/node/bin/node
-                // Then the 'openclaw' binary is likely in that same bin folder or installed globally there.
                 openclawBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin/openclaw';
             }
 
-            // Also ensure standard Termux paths are in PATH just in case it relies on other binaries
+            // Ensure both Termux bin and the OpenClaw node bin are in PATH.
+            // This is critical: the openclaw script uses `#!/usr/bin/env node`, so `env` must
+            // be able to resolve `node` — which lives in the openclaw-android node bin directory.
             const env = { ...process.env };
             const termuxBin = '/data/data/com.termux/files/usr/bin';
-            if (!env.PATH?.includes(termuxBin)) {
-                env.PATH = env.PATH ? `${termuxBin}:${env.PATH}` : termuxBin;
+            const openclawNodeBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin';
+            const pathsToAdd = [openclawNodeBin, termuxBin].filter(p => !env.PATH?.includes(p));
+            if (pathsToAdd.length > 0) {
+                env.PATH = env.PATH ? `${pathsToAdd.join(':')}:${env.PATH}` : pathsToAdd.join(':');
             }
 
             const { stdout, stderr } = await execFileAsync(openclawBin, args, {
