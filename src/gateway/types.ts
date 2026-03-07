@@ -4,28 +4,48 @@ export interface GatewayError {
     hint?: string;
 }
 
-export interface CommandResponse {
-    message?: string;
-    error?: string;
-    latency_ms?: number;
-    session_id?: string;
-    model?: string;
+export interface OpenAIChatCompletionResponse {
+    id: string;
+    object: string;
+    created: number;
+    model: string;
+    choices: Array<{
+        index: number;
+        message: {
+            role: string;
+            content: string;
+        };
+        finish_reason: string;
+    }>;
+    usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+    };
 }
 
-export interface SessionsResponse {
-    sessions: Array<{
-        id: string;
-        model: string;
-        last_active: string;
-        flags?: string[];
-    }>;
+export interface CommandResponse {
+    response: string;
+    model: string;
+    usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+    };
 }
 
 export interface HealthResponse {
-    status: string;
-    uptime_seconds: number;
-    agents: Record<string, {
-        model: string;
-        status: string;
-    }>;
+    status: 'ok' | 'error';
+    message: string;
+}
+
+export interface SessionEntry {
+    id: string;
+    model: string;
+    updated: string;
+    flags: string;
+}
+
+export interface SessionsResponse {
+    sessions: SessionEntry[];
 }
