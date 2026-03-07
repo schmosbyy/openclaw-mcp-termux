@@ -16,7 +16,14 @@ An MCP (Model Context Protocol) server that runs natively on Android via Termux,
 
 This setup is for when you want to use the MCP locally on the same device with an MCP client (like Cursor).
 
-1. **Install Prerequisites in Termux**
+1. **Enable OpenClaw HTTP Endpoints (Crucial)**
+   By default, OpenClaw disables HTTP endpoints. You must enable the OpenAI-compatible chat completions endpoint for this bridge to work. Run this on your Termux device:
+   ```bash
+   openclaw config set gateway.http.endpoints.chatCompletions.enabled true
+   openclaw gateway restart
+   ```
+
+2. **Install Prerequisites in Termux**
    ```bash
    pkg install nodejs git tmux openssl-tool
    ```
