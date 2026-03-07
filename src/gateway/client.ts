@@ -169,7 +169,15 @@ export class OpenClawGatewayClient {
      */
     private async execOpenClaw(args: string[]): Promise<string> {
         try {
+            // Ensure Termux paths are in PATH, as the MCP might be started without a full shell profile
+            const env = { ...process.env };
+            const termuxBin = '/data/data/com.termux/files/usr/bin';
+            if (!env.PATH?.includes(termuxBin)) {
+                env.PATH = env.PATH ? `${termuxBin}:${env.PATH}` : termuxBin;
+            }
+
             const { stdout, stderr } = await execFileAsync('openclaw', args, {
+                env,
                 timeout: 60000, // 60s max
                 maxBuffer: 10 * 1024 * 1024 // 10MB max buffer for logs
             });
