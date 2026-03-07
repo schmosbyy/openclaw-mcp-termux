@@ -37,21 +37,25 @@ This setup is for when you want to use the MCP locally on the same device with a
    cat ~/.openclaw/secrets.json
    ```
 
-4. **Add to your MCP Client config**
+4. **Add to your MCP Client config (Claude Desktop on Mac → Android via SSH)**
+
+   Since the MCP server runs on your Android device but Claude Desktop runs on your Mac, you need SSH to bridge them. Make sure you have an SSH alias `android` configured in `~/.ssh/config` pointing to your Termux device.
+
    ```json
    {
      "mcpServers": {
-       "openclaw": {
-         "command": "node",
-         "args": ["/data/data/com.termux/files/home/openclaw-mcp-termux/dist/index.js"],
-         "env": {
-           "OPENCLAW_URL": "http://127.0.0.1:18789",
-           "OPENCLAW_GATEWAY_TOKEN": "your-token-here"
-         }
+       "tani": {
+         "command": "/usr/bin/ssh",
+         "args": [
+           "android",
+           "OPENCLAW_GATEWAY_TOKEN=your-token-here /data/data/com.termux/files/home/.openclaw-android/node/bin/node /data/data/com.termux/files/home/openclaw-mcp-termux/dist/index.js"
+         ]
        }
      }
    }
    ```
+
+   > **Note:** Replace `your-token-here` with the actual token from `~/.openclaw/secrets.json` on your Android device. The env var is passed inline because SSH doesn't forward your local environment.
 
 ---
 
