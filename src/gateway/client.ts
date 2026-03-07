@@ -169,14 +169,26 @@ export class OpenClawGatewayClient {
      */
     private async execOpenClaw(args: string[]): Promise<string> {
         try {
-            // Ensure Termux paths are in PATH, as the MCP might be started without a full shell profile
+            // First, allow the user to explicitly define where the openclaw binary is via the environment
+            // This is the most reliable way when running via a non-interactive SSH shell.
+            let openclawBin = process.env.OPENCLAW_BIN_PATH;
+
+            // If they didn't provide it, let's try to guess the most likely location in Termux
+            if (!openclawBin) {
+                // If we're running inside the custom OpenClaw node environment you mentioned:
+                // /data/data/com.termux/files/home/.openclaw-android/node/bin/node
+                // Then the 'openclaw' binary is likely in that same bin folder or installed globally there.
+                openclawBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin/openclaw';
+            }
+
+            // Also ensure standard Termux paths are in PATH just in case it relies on other binaries
             const env = { ...process.env };
             const termuxBin = '/data/data/com.termux/files/usr/bin';
             if (!env.PATH?.includes(termuxBin)) {
                 env.PATH = env.PATH ? `${termuxBin}:${env.PATH}` : termuxBin;
             }
 
-            const { stdout, stderr } = await execFileAsync('openclaw', args, {
+            const { stdout, stderr } = await execFileAsync(openclawBin, args, {
                 env,
                 timeout: 60000, // 60s max
                 maxBuffer: 10 * 1024 * 1024 // 10MB max buffer for logs
