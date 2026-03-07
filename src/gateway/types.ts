@@ -49,3 +49,36 @@ export interface SessionEntry {
 export interface SessionsResponse {
     sessions: SessionEntry[];
 }
+
+export interface DoctorCheck {
+    name: string;
+    status: 'ok' | 'warn' | 'fail';
+    message: string;
+    fix_applied?: boolean;
+}
+
+export interface DoctorResponse {
+    status: 'ok' | 'warn' | 'fail';
+    checks: DoctorCheck[];
+    repairs_applied?: string[];
+    config_backup_path?: string | null;
+}
+
+export interface LogLine {
+    timestamp: string;
+    level: string;
+    message: string;
+    context?: Record<string, any>;
+}
+
+export interface LogsResponse {
+    lines: LogLine[];
+    total: number;
+    truncated: boolean;
+}
+
+export interface RestartResponse {
+    status: 'restarted' | 'failed';
+    message: string;
+    pid?: number;
+}

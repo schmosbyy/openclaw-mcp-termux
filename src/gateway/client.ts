@@ -1,6 +1,10 @@
-import { CommandResponse, HealthResponse, OpenAIChatCompletionResponse, SessionsResponse } from './types.js';
+import { CommandResponse, HealthResponse, OpenAIChatCompletionResponse, SessionsResponse, DoctorResponse, LogsResponse, RestartResponse } from './types.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 export class OpenClawGatewayClient {
     readonly baseUrl: string;
@@ -158,5 +162,105 @@ export class OpenClawGatewayClient {
             }
             throw this.createError('TOOL_ERROR', `Failed to read sessions: ${err.message}`);
         }
+    }
+
+    /**
+     * Execute a local shell command securely as OpenClaw CLI
+     */
+    private async execOpenClaw(args: string[]): Promise<string> {
+        try {
+            const { stdout, stderr } = await execFileAsync('openclaw', args, {
+                timeout: 60000, // 60s max
+                maxBuffer: 10 * 1024 * 1024 // 10MB max buffer for logs
+            });
+            return stdout.trim();
+        } catch (err: any) {
+            if (err.stdout) {
+                // The CLI returned non-zero, but might have printed valid JSON
+                return err.stdout.trim();
+            }
+            throw this.createError('TOOL_ERROR', `Command execution failed: ${err.message}`);
+        }
+    }
+
+    /**
+     * Run OpenClaw doctor
+     */
+    async runDoctor(fix: boolean, nonInteractive: boolean, deep: boolean, json: boolean): Promise<DoctorResponse> {
+        const args = ['doctor'];
+        if (fix) args.push('--fix');
+        if (nonInteractive) args.push('--non-interactive');
+        if (deep) args.push('--deep');
+        if (json) args.push('--json');
+
+        const stdout = await this.execOpenClaw(args);
+
+        if (json) {
+            try {
+                return JSON.parse(stdout) as DoctorResponse;
+            } catch (err) {
+                throw this.createError('TOOL_ERROR', `Failed to parse doctor output as JSON: ${stdout.substring(0, 100)}...`);
+            }
+        }
+
+        // Unlikely to hit this since json=true is default/required for programmatic access
+        return { status: 'warn', checks: [], message: stdout } as any;
+    }
+
+    /**
+     * Get OpenClaw logs
+     */
+    async getLogs(limit: number, json: boolean, level?: string): Promise<LogsResponse> {
+        const args = ['logs'];
+        if (limit) {
+            args.push('--limit', limit.toString());
+        }
+        if (json) args.push('--json');
+
+        const stdout = await this.execOpenClaw(args);
+
+        if (json) {
+            try {
+                // If it's a single JSON object with a .lines property (expected shape):
+                let parsed: any;
+                try {
+                    parsed = JSON.parse(stdout);
+                } catch (e) {
+                    // It might be line-delimited JSON. Let's parse it manually if needed.
+                    const lines = stdout.split('\n').filter(Boolean).map(l => JSON.parse(l));
+                    parsed = { lines, total: lines.length, truncated: false };
+                }
+
+                if (level) {
+                    parsed.lines = parsed.lines.filter((l: any) => l.level === level);
+                }
+
+                return parsed as LogsResponse;
+            } catch (err) {
+                throw this.createError('TOOL_ERROR', `Failed to parse logs output as JSON: ${stdout.substring(0, 100)}...`);
+            }
+        }
+
+        return { lines: [], total: 0, truncated: false };
+    }
+
+    /**
+     * Restart OpenClaw gateway
+     */
+    async restartGateway(json: boolean): Promise<RestartResponse> {
+        const args = ['gateway', 'restart'];
+        if (json) args.push('--json');
+
+        const stdout = await this.execOpenClaw(args);
+
+        if (json) {
+            try {
+                return JSON.parse(stdout) as RestartResponse;
+            } catch (err) {
+                throw this.createError('TOOL_ERROR', `Failed to parse restart output as JSON: ${stdout.substring(0, 100)}...`);
+            }
+        }
+
+        return { status: 'restarted', message: 'Assuming success due to non-JSON format' };
     }
 }
