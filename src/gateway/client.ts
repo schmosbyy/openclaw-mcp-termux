@@ -175,7 +175,7 @@ export class OpenClawGatewayClient {
 
             // If they didn't provide it, let's try to guess the most likely location in Termux
             if (!openclawBin) {
-                openclawBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin/openclaw';
+                openclawBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin/openclaw.mjs';
             }
 
             // Ensure both Termux bin and the OpenClaw node bin are in PATH.
