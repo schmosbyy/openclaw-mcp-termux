@@ -40,7 +40,7 @@ export async function handleLogs(client: OpenClawGatewayClient, input: any) {
     const json = input.json ?? true;
     const level = input.level;
 
-    const logPath = path.join(os.homedir(), '.openclaw', 'logs', 'gateway.log');
+    const logPath = path.join(os.homedir(), '.openclaw', 'logs', 'commands.log');
 
     try {
         let fileStat;
