@@ -8,6 +8,7 @@ import { sessionsTool, handleSessionsList } from './tools/sessions.js';
 import { doctorTool, handleDoctor } from './tools/doctor.js';
 import { logsTool, handleLogs } from './tools/logs.js';
 import { restartTool, handleRestart } from './tools/restart.js';
+import { shellExecTool, handleShellExec } from './tools/shell_exec.js';
 
 export function createServer(client: OpenClawGatewayClient): Server {
     const server = new Server(
@@ -30,7 +31,8 @@ export function createServer(client: OpenClawGatewayClient): Server {
                 sessionsTool,
                 doctorTool,
                 logsTool,
-                restartTool
+                restartTool,
+                shellExecTool
             ]
         };
     });
@@ -54,6 +56,9 @@ export function createServer(client: OpenClawGatewayClient): Server {
 
             case restartTool.name:
                 return handleRestart(client, request.params.arguments || {});
+
+            case shellExecTool.name:
+                return handleShellExec(client, request.params.arguments || {});
 
             default:
                 throw new Error(`Unknown tool: ${request.params.name}`);
