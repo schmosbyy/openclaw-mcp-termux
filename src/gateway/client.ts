@@ -189,7 +189,16 @@ export class OpenClawGatewayClient {
                 env.PATH = env.PATH ? `${pathsToAdd.join(':')}:${env.PATH}` : pathsToAdd.join(':');
             }
 
-            const { stdout, stderr } = await execFileAsync(openclawBin, args, {
+            // Ensure the glibc compat patch is loaded (required for openclaw-android node)
+            if (!env.NODE_OPTIONS?.includes('glibc-compat')) {
+                const glibcPatch = '/data/data/com.termux/files/home/.openclaw-android/patches/glibc-compat.js';
+                env.NODE_OPTIONS = `--no-warnings=DEP0040 -r ${glibcPatch}`;
+            }
+
+            // Invoke node directly to bypass shebang resolution failure in non-interactive shells
+            // openclawBin is a symlink to openclaw.mjs — node can load it directly
+            const nodeBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin/node';
+            const { stdout, stderr } = await execFileAsync(nodeBin, [openclawBin, ...args], {
                 env,
                 timeout: 60000, // 60s max
                 maxBuffer: 10 * 1024 * 1024 // 10MB max buffer for logs
