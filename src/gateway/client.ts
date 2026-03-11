@@ -148,12 +148,15 @@ export class OpenClawGatewayClient {
             const raw = await fs.readFile(sessionsPath, 'utf-8');
             const data = JSON.parse(raw);
 
-            // Parse into a structured list
-            const sessions = Object.entries(data).map(([id, entry]: [string, any]) => ({
-                id,
-                model: entry.model || 'unknown',
-                updated: entry.updatedAt || entry.updated || 'unknown',
-                flags: entry.flags || 'none',
+            // Map real sessions.json shape: keyed by sessionKey string
+            // Each entry: { sessionId, updatedAt (epoch ms), chatType, compactionCount, abortedLastRun, sessionFile }
+            const sessions = Object.entries(data).map(([sessionKey, entry]: [string, any]) => ({
+                sessionKey,
+                sessionId: entry.sessionId || 'unknown',
+                updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : 'unknown',
+                chatType: entry.chatType || 'unknown',
+                compactionCount: entry.compactionCount ?? 0,
+                abortedLastRun: entry.abortedLastRun ?? false,
             }));
 
             return { sessions };

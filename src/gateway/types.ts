@@ -40,10 +40,12 @@ export interface HealthResponse {
 }
 
 export interface SessionEntry {
-    id: string;
-    model: string;
-    updated: string;
-    flags: string;
+    sessionKey: string;
+    sessionId: string;
+    updatedAt: string;
+    chatType: string;
+    compactionCount: number;
+    abortedLastRun: boolean;
 }
 
 export interface SessionsResponse {
