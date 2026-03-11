@@ -10,7 +10,7 @@ async function main() {
     const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || '';
     const bridgeToken = process.env.BRIDGE_TOKEN || '';
     const port = parseInt(process.env.PORT || '3000', 10);
-    const timeoutMs = parseInt(process.env.OPENCLAW_TIMEOUT_MS || '300000', 10);
+    const timeoutMs = parseInt(process.env.OPENCLAW_TIMEOUT_MS || '660000', 10);
 
     const argvOptions = process.argv.includes('--transport')
         ? process.argv[process.argv.indexOf('--transport') + 1]
