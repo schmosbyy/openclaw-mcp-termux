@@ -62,6 +62,7 @@ export interface DoctorResponse {
     checks: DoctorCheck[];
     repairs_applied?: string[];
     config_backup_path?: string | null;
+    message?: string;
 }
 
 export interface LogLine {

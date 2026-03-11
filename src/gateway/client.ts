@@ -215,26 +215,18 @@ export class OpenClawGatewayClient {
 
     /**
      * Run OpenClaw doctor
+     * Valid flags: --fix, --non-interactive only.
+     * --json and --deep do NOT exist in the openclaw CLI and will cause an error.
      */
-    async runDoctor(fix: boolean, nonInteractive: boolean, deep: boolean, json: boolean): Promise<DoctorResponse> {
+    async runDoctor(fix: boolean, nonInteractive: boolean): Promise<DoctorResponse> {
         const args = ['doctor'];
         if (fix) args.push('--fix');
         if (nonInteractive) args.push('--non-interactive');
-        if (deep) args.push('--deep');
-        if (json) args.push('--json');
 
         const stdout = await this.execOpenClaw(args);
 
-        if (json) {
-            try {
-                return JSON.parse(stdout) as DoctorResponse;
-            } catch (err) {
-                throw this.createError('TOOL_ERROR', `Failed to parse doctor output as JSON: ${stdout.substring(0, 100)}...`);
-            }
-        }
-
-        // Unlikely to hit this since json=true is default/required for programmatic access
-        return { status: 'warn', checks: [], message: stdout } as any;
+        // Output is plain text — wrap it in a DoctorResponse-compatible shape
+        return { status: 'ok', checks: [], message: stdout };
     }
 
     /**
