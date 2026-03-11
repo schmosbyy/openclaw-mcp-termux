@@ -57,8 +57,9 @@ export class OpenClawGatewayClient {
             });
 
             // Both 2xx and 4xx mean the gateway is alive and processing
+            // (400 is the EXPECTED response for a malformed health-check request)
             if (response.status >= 200 && response.status < 500) {
-                return { status: 'ok', message: `Gateway responding (HTTP ${response.status})` };
+                return { status: 'ok', message: 'Healthy' };
             }
 
             return { status: 'error', message: `Gateway error (HTTP ${response.status})` };
