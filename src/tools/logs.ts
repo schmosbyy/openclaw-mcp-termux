@@ -40,7 +40,33 @@ export async function handleLogs(client: OpenClawGatewayClient, input: any) {
     const json = input.json ?? true;
     const level = input.level;
 
-    const logPath = path.join(os.homedir(), '.openclaw', 'logs', 'commands.log');
+    // Resolve log path:
+    // 1. PRIMARY: Real gateway log at ~/openclaw-{PID}/openclaw-YYYY-MM-DD.log
+    //    This file contains actual gateway stderr, crashes, and errors.
+    //    The PID-keyed directory is created by the gateway on startup.
+    // 2. FALLBACK: ~/.openclaw/logs/commands.log
+    //    This file only contains session lifecycle events (new/reset) — not gateway errors.
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const home = os.homedir();
+    let logPath = path.join(home, '.openclaw', 'logs', 'commands.log');
+
+    try {
+        const homeEntries = await fs.readdir(home);
+        const gatewayDirs = homeEntries.filter(e => e.startsWith('openclaw-'));
+        for (const dir of gatewayDirs) {
+            const candidate = path.join(home, dir, `openclaw-${today}.log`);
+            try {
+                await stat(candidate);
+                // Found a real gateway log — use it instead of commands.log
+                logPath = candidate;
+                break;
+            } catch {
+                // This candidate doesn't exist, try next
+            }
+        }
+    } catch {
+        // readdir on home failed; fall back to commands.log silently
+    }
 
     try {
         let fileStat;
