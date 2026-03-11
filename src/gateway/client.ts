@@ -1,4 +1,4 @@
-import { CommandResponse, HealthResponse, OpenAIChatCompletionResponse, SessionsResponse, DoctorResponse, LogsResponse, RestartResponse } from './types.js';
+import { CommandResponse, HealthResponse, OpenAIChatCompletionResponse, SessionsResponse, DoctorResponse, RestartResponse } from './types.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -230,42 +230,6 @@ export class OpenClawGatewayClient {
         return { status: 'ok', checks: [], message: stdout };
     }
 
-    /**
-     * Get OpenClaw logs
-     */
-    async getLogs(limit: number, json: boolean, level?: string): Promise<LogsResponse> {
-        const args = ['logs'];
-        if (limit) {
-            args.push('--limit', limit.toString());
-        }
-        if (json) args.push('--json');
-
-        const stdout = await this.execOpenClaw(args);
-
-        if (json) {
-            try {
-                // If it's a single JSON object with a .lines property (expected shape):
-                let parsed: any;
-                try {
-                    parsed = JSON.parse(stdout);
-                } catch (e) {
-                    // It might be line-delimited JSON. Let's parse it manually if needed.
-                    const lines = stdout.split('\n').filter(Boolean).map(l => JSON.parse(l));
-                    parsed = { lines, total: lines.length, truncated: false };
-                }
-
-                if (level) {
-                    parsed.lines = parsed.lines.filter((l: any) => l.level === level);
-                }
-
-                return parsed as LogsResponse;
-            } catch (err) {
-                throw this.createError('TOOL_ERROR', `Failed to parse logs output as JSON: ${stdout.substring(0, 100)}...`);
-            }
-        }
-
-        return { lines: [], total: 0, truncated: false };
-    }
 
     /**
      * Restart OpenClaw gateway

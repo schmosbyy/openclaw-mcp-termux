@@ -65,19 +65,6 @@ export interface DoctorResponse {
     message?: string;
 }
 
-export interface LogLine {
-    timestamp: string;
-    level: string;
-    message: string;
-    context?: Record<string, any>;
-}
-
-export interface LogsResponse {
-    lines: LogLine[];
-    total: number;
-    truncated: boolean;
-}
-
 export interface RestartResponse {
     status: 'restarted' | 'failed';
     message: string;
