@@ -9,6 +9,7 @@ An MCP (Model Context Protocol) server that runs natively on Android via Termux,
   - `stdio` for local clients (Claude Desktop, Cursor).
   - `Streamable HTTP` for remote web clients (Claude.ai) via Cloudflare Tunnel.
 - **Secure**: Uses Bearer token authentication for remote connections.
+- `Tani is the name of the openclaw agent in this context`
 
 ---
 
