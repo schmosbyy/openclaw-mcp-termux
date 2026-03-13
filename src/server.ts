@@ -10,6 +10,10 @@ import { logsTool, handleLogs } from './tools/logs.js';
 import { restartTool, handleRestart } from './tools/restart.js';
 import { shellExecTool, handleShellExec } from './tools/shell_exec.js';
 
+import { currentActionsTool, handleCurrentActions } from './tools/current_actions.js';
+import { systemHealthTool, handleSystemHealth } from './tools/system_health.js';
+import { sessionsDetailTool, handleSessionsDetail } from './tools/sessions_detail.js';
+import { recentLogTool, handleRecentLog } from './tools/recent_log.js';
 export function createServer(client: OpenClawGatewayClient): Server {
     const server = new Server(
         {
@@ -32,7 +36,11 @@ export function createServer(client: OpenClawGatewayClient): Server {
                 doctorTool,
                 logsTool,
                 restartTool,
-                shellExecTool
+                shellExecTool,
+                currentActionsTool,
+                systemHealthTool,
+                sessionsDetailTool,
+                recentLogTool
             ]
         };
     });
@@ -59,6 +67,18 @@ export function createServer(client: OpenClawGatewayClient): Server {
 
             case shellExecTool.name:
                 return handleShellExec(client, request.params.arguments || {});
+
+            case currentActionsTool.name:
+                return handleCurrentActions(client, request.params.arguments || {});
+
+            case systemHealthTool.name:
+                return handleSystemHealth(client, request.params.arguments || {});
+
+            case sessionsDetailTool.name:
+                return handleSessionsDetail(client, request.params.arguments || {});
+
+            case recentLogTool.name:
+                return handleRecentLog(client, request.params.arguments || {});
 
             default:
                 throw new Error(`Unknown tool: ${request.params.name}`);
