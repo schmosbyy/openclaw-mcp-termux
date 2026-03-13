@@ -7,7 +7,7 @@ const execAsync = promisify(exec);
 
 export const shellExecTool = {
     name: 'shell_exec',
-    description: 'Execute arbitrary shell commands on the Termux device. Useful for direct filesystem inspection and diagnostics.',
+    description: 'Execute arbitrary shell commands on the Termux device. Useful for direct filesystem inspection and diagnostics. Only call when the user has explicitly requested execution, or when diagnostics are clearly required for the task at hand. Do not use for speculative exploration or as a default first step.',
     inputSchema: {
         type: 'object',
         properties: {

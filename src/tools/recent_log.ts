@@ -7,7 +7,7 @@ const HOME = os.homedir();
 
 export const recentLogTool = {
     name: 'tani_recent_log',
-    description: 'Return the last N lines of the real OpenClaw gateway log (stderr/errors/crashes). Unlike openclaw_logs which may fall back to session lifecycle events, this tool ONLY reads the real PID-keyed gateway log at ~/openclaw-{PID}/openclaw-YYYY-MM-DD.log. Returns null log_path if gateway has never started.',
+    description: 'Return the last N lines of the real OpenClaw gateway log (stderr/errors/crashes). Unlike openclaw_logs which may fall back to session lifecycle events, this tool ONLY reads the real PID-keyed gateway log at ~/openclaw-{PID}/openclaw-YYYY-MM-DD.log. Returns null log_path if gateway has never started. NOTE: The PID-keyed path (~/openclaw-{PID}/...) is broken on OpenClaw 2026.3.12. Log path for 2026.3.12+ is pending confirmation — this tool will return null until the correct path is patched in a follow-up commit.',
     inputSchema: {
         type: 'object',
         properties: {
@@ -59,7 +59,7 @@ export async function handleRecentLog(
                         log_path: null,
                         lines_returned: 0,
                         content: [],
-                        note: `No gateway log found at ~/openclaw-{PID}/openclaw-${today}.log. Gateway may not have been started today, or PID directory was cleaned up.`
+                        note: `PID-keyed log path is not valid on OpenClaw 2026.3.12+. Correct log location pending investigation. See GitHub issue for tracking.`
                     }, null, 2)
                 }]
             };

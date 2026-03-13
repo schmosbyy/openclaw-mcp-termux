@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that runs natively on Android via Termux,
 
 ## Features
 - **No Docker Required**: Runs natively in Termux (Node.js).
-- **Orchestrator Pattern**: Exposes a single `tani_send` tool so Claude Opus orchestrates tasks through Tani.
+- **Orchestrator Pattern**: Exposes 7 full tools for Claude to orchestrate tasks through OpenClaw, check gateway health, inspect logs, run self-healing, and execute Android shell commands.
 - **Dual Transport Mode**: 
   - `stdio` for local clients (Claude Desktop, Cursor).
   - `Streamable HTTP` for remote web clients (Claude.ai) via Cloudflare Tunnel.
@@ -13,12 +13,43 @@ An MCP (Model Context Protocol) server that runs natively on Android via Termux,
 
 ---
 
-## 🚀 Quick Start (Local stdio mode)
+## Architecture
 
-This setup is for when you want to use the MCP locally on the same device with an MCP client (like Cursor).
+This MCP server acts as a proxy bridge. The OpenClaw gateway only listens on localhost within Termux. This bridge exposes those capabilities to external MCP clients:
+
+```text
+Claude.ai              ──[HTTP/SSE]──► Cloudflared Tunnel ──►
+        OR                                                  └──► [openclaw-mcp-termux] ──[HTTP]──► OpenClaw Gateway (127.0.0.1:18789)
+Local Client (Cursor)  ──[stdio]─────► SSH connection     ──►
+```
+
+---
+
+## Available Tools
+
+This bridge exposes 10 tools to Claude, allowing it to fully manage and interact with your OpenClaw assistant:
+
+| Tool | Description |
+|------|-------------|
+| `tani_send` | Send a task or plan to the Tani orchestrator |
+| `tani_sessions_list` | List recent sessions for any agent |
+| `tani_sessions_detail` | Enriched session view: active state, subagent flag, last tool call |
+| `tani_agent_status` | Check gateway reachability and health (HTTP 400 = healthy by design) |
+| `tani_current_actions` | Check if any agent is currently busy — call before tani_send |
+| `system_health` | RAM, CPU, disk, and OpenClaw version snapshot |
+| `tani_recent_log` | Tail the gateway error/crash log ⚠️ broken on 2026.3.12, fix pending |
+| `openclaw_logs` | Session lifecycle event log (`~/.openclaw/logs/commands.log`) |
+| `openclaw_gateway_restart` | Restart the gateway service |
+| `shell_exec` | Execute shell commands on the Termux device |
+
+---
+
+## 🚀 Quick Start (Local stdio mode via SSH)
+
+This setup is for when you want to use the MCP locally on your computer (e.g., Mac with Cursor or Claude Desktop) to connect to OpenClaw running on your Android device.
 
 1. **Enable OpenClaw HTTP Endpoints (Crucial)**
-   By default, OpenClaw disables HTTP endpoints. You must enable the OpenAI-compatible chat completions endpoint for this bridge to work. Run this on your Termux device:
+   By default, OpenClaw disables HTTP endpoints. You must enable the OpenAI-compatible endpoint. Run this on your Termux device:
    ```bash
    openclaw config set gateway.http.endpoints.chatCompletions.enabled true
    openclaw gateway restart
@@ -29,14 +60,14 @@ This setup is for when you want to use the MCP locally on the same device with a
    pkg install nodejs git tmux openssl-tool
    ```
 
-2. **Clone & Build**
+3. **Clone & Build**
    ```bash
    git clone https://github.com/yourusername/openclaw-mcp-termux.git
    cd openclaw-mcp-termux
    npm install && npm run build
    ```
 
-3. **Configure**
+4. **Configure Environment**
    ```bash
    cp .env.example .env
    ```
@@ -45,14 +76,12 @@ This setup is for when you want to use the MCP locally on the same device with a
    cat ~/.openclaw/secrets.json
    ```
 
-4. **Add to your MCP Client config (Claude Desktop on Mac → Android via SSH)**
-
-   Since the MCP server runs on your Android device but Claude Desktop runs on your Mac, you need SSH to bridge them. Make sure you have an SSH alias `android` configured in `~/.ssh/config` pointing to your Termux device.
-
+5. **Configure your MCP Client (e.g., Claude Desktop on Mac)**
+   Since the MCP server runs on Android but your client runs on Mac, you need SSH to bridge them. Make sure you have an SSH alias `android` in `~/.ssh/config` pointing to Termux. Add this to your `claude_desktop_config.json`:
    ```json
    {
      "mcpServers": {
-       "tani": {
+       "openclaw-tani": {
          "command": "/usr/bin/ssh",
          "args": [
            "android",
@@ -62,23 +91,25 @@ This setup is for when you want to use the MCP locally on the same device with a
      }
    }
    ```
-
-   > **Note:** Replace `your-token-here` with the actual token from `~/.openclaw/secrets.json` on your Android device. The env var is passed inline because SSH doesn't forward your local environment.
+   > **Note:** The env var is passed inline because SSH doesn't forward your local environment reliably.
 
 ---
 
 ## 🌐 Connecting Claude.ai (Remote HTTP mode)
 
-If you want to use Claude.ai on the web to talk to your Android's OpenClaw, you need to expose this bridge via a tunnel and run it persistently.
+If you want to use Claude.ai on the web to talk to your Android's OpenClaw, expose this bridge via a tunnel.
 
 1. **Generate a Bridge Token**
-   Run `./scripts/gen-token.sh` and add the 32-byte token to your `.env` as `BRIDGE_TOKEN`.
+   Run the helper script on Termux and add the 32-byte token to your `.env` explicitly as `BRIDGE_TOKEN`:
+   ```bash
+   bash scripts/gen-token.sh
+   ```
 
 2. **Start the Persistent Server**
+   To prevent Android from killing the process when the screen locks, run inside the included tmux script:
    ```bash
    bash scripts/start-tmux.sh
    ```
-   *This starts the server on port 3000 in a tmux session and prevents Android from killing it.*
 
 3. **Expose via Cloudflare Tunnel**
    ```bash
@@ -88,17 +119,45 @@ If you want to use Claude.ai on the web to talk to your Android's OpenClaw, you 
    *Copy the `trycloudflare.com` URL printed.*
 
 4. **Connect Claude.ai**
-   - Go to Claude.ai Settings → Integrations → Add custom connector
+   - Go to **Claude.ai Settings** → **Integrations** → **Add custom connector**
    - Enter your Cloudflare Tunnel URL.
    - Enter your `BRIDGE_TOKEN` when prompted.
 
 ---
 
-## Available Tools
+## Environment Variables Reference
 
-- **`tani_send`**: Send a structured plan or message to the Tani orchestrator. Tani executes the plan by delegating to its specialized subagents (Alan for code, Rachel for docs) or searching internal memory.
-- **`tani_sessions_list`**: List recent Tani sessions to find context or resume past conversations.
-- **`tani_agent_status`**: Check if the OpenClaw gateway is alive and routing properly.
+Here are the supported environment variables (see `.env.example`):
+
+| Variable | Required | Description | Default |
+|---|---|---|---|
+| `OPENCLAW_URL` | Yes | Local URL of your OpenClaw gateway | `http://127.0.0.1:18789` |
+| `OPENCLAW_GATEWAY_TOKEN` | Yes | Gateway token from `~/.openclaw/secrets.json` | - |
+| `BRIDGE_TOKEN` | Remote Only | Bearer auth token for clients connecting to this MCP bridge | - |
+| `PORT` | No | Port for the HTTP transport server | `3000` |
+| `OPENCLAW_TIMEOUT_MS` | No | Timeout for gateway calls in milliseconds | `300000` (5 mins) |
+| `DEBUG` | No | Enable verbose request logging | `false` |
+| `TRANSPORT` | No | Override transport mode (`stdio` or `http`) | `stdio` |
+
+---
+
+## Project Structure
+
+```text
+openclaw-mcp-termux/
+├── src/
+│   ├── index.ts        # Entrypoint; sets up stdio vs HTTP bindings
+│   ├── server.ts       # MCP Server definitions
+│   ├── transport.ts    # Transport modes
+│   ├── auth.ts         # Bearer token auth for HTTP
+│   ├── tools/          # Handlers for the 7 tools
+│   └── gateway/        # External HTTP client wrapping the OpenClaw API
+├── scripts/
+│   ├── gen-token.sh    # Secure token generator
+│   └── start/stop-tmux.sh # Persistent wake-locked background running
+├── docs/               # Technical setup documentation
+└── .env.example
+```
 
 ---
 

@@ -2,7 +2,7 @@ import { OpenClawGatewayClient } from '../gateway/client.js';
 
 export const sendTool = {
     name: 'tani_send',
-    description: 'Send a detailed plan or message to Tani, the OpenClaw orchestrator. Tani will use your plan to execute tasks by delegating to specialized subagents (Alan for coding, Rachel for documents) or doing internal searches. The message should contain structured steps and full context.',
+    description: 'Send a detailed plan or message to Tani, the OpenClaw orchestrator. Tani will use your plan to execute tasks by delegating to specialized subagents (Alan for coding, Rachel for documents) or doing internal searches. The message should contain structured steps and full context. Only call this tool when the user has explicitly requested execution (e.g. "do it", "send it", "execute"). If the user asks for a plan, prompt, or artifact — produce that output instead. Do not call speculatively.',
     inputSchema: {
         type: 'object',
         properties: {
