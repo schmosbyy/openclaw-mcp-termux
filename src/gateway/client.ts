@@ -177,9 +177,10 @@ export class OpenClawGatewayClient {
             // This is the most reliable way when running via a non-interactive SSH shell.
             let openclawBin = process.env.OPENCLAW_BIN_PATH;
 
-            // If OPENCLAW_BIN_PATH is not set, default to the proot wrapper script.
-            // This launches openclaw inside proot-Ubuntu with the Termux home bind-mounted.
+            // If they didn't provide it, let's try to guess the most likely location in Termux
             if (!openclawBin) {
+                // Default to the gateway wrapper script.
+                // Can be overridden via OPENCLAW_BIN_PATH env var.
                 openclawBin = '/data/data/com.termux/files/home/bin/openclaw-proot.sh';
             }
 
@@ -199,8 +200,6 @@ export class OpenClawGatewayClient {
                 env.NODE_OPTIONS = `--no-warnings=DEP0040 -r ${glibcPatch}`;
             }
 
-            // Invoke node directly to bypass shebang resolution failure in non-interactive shells
-            // openclawBin is a symlink to openclaw.mjs — node can load it directly
             const { stdout, stderr } = await execFileAsync(openclawBin, args, {
                 env,
                 timeout: 60000, // 60s max
