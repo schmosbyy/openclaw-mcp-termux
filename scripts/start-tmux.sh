@@ -12,7 +12,7 @@ tmux kill-session -t "$SESSION" 2>/dev/null
 
 # Start new detached tmux session running the bridge
 tmux new-session -d -s "$SESSION" -x 220 -y 50 \
-  "cd $(dirname "$0")/.. && node dist/index.js --transport http 2>&1 | tee /tmp/openclaw-mcp.log"
+  "cd $(dirname "$0")/.. && /data/data/com.termux/files/usr/bin/node dist/index.js --transport http 2>&1 | tee /tmp/openclaw-mcp.log"
 
 echo "✅ openclaw-mcp-termux started in tmux session '$SESSION'"
 echo ""

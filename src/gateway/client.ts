@@ -177,9 +177,10 @@ export class OpenClawGatewayClient {
             // This is the most reliable way when running via a non-interactive SSH shell.
             let openclawBin = process.env.OPENCLAW_BIN_PATH;
 
-            // If they didn't provide it, let's try to guess the most likely location in Termux
+            // If OPENCLAW_BIN_PATH is not set, default to the proot wrapper script.
+            // This launches openclaw inside proot-Ubuntu with the Termux home bind-mounted.
             if (!openclawBin) {
-                openclawBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin/openclaw';
+                openclawBin = '/data/data/com.termux/files/home/bin/openclaw-proot.sh';
             }
 
             // Ensure both Termux bin and the OpenClaw node bin are in PATH.
@@ -187,8 +188,7 @@ export class OpenClawGatewayClient {
             // be able to resolve `node` — which lives in the openclaw-android node bin directory.
             const env = { ...process.env };
             const termuxBin = '/data/data/com.termux/files/usr/bin';
-            const openclawNodeBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin';
-            const pathsToAdd = [openclawNodeBin, termuxBin].filter(p => !env.PATH?.includes(p));
+            const pathsToAdd = [termuxBin].filter(p => !env.PATH?.includes(p));
             if (pathsToAdd.length > 0) {
                 env.PATH = env.PATH ? `${pathsToAdd.join(':')}:${env.PATH}` : pathsToAdd.join(':');
             }
@@ -201,8 +201,7 @@ export class OpenClawGatewayClient {
 
             // Invoke node directly to bypass shebang resolution failure in non-interactive shells
             // openclawBin is a symlink to openclaw.mjs — node can load it directly
-            const nodeBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin/node';
-            const { stdout, stderr } = await execFileAsync(nodeBin, [openclawBin, ...args], {
+            const { stdout, stderr } = await execFileAsync(openclawBin, args, {
                 env,
                 timeout: 60000, // 60s max
                 maxBuffer: 10 * 1024 * 1024 // 10MB max buffer for logs
