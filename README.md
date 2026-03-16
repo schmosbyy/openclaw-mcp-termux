@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that runs natively on Android via Termux,
 
 ## Features
 - **No Docker Required**: Runs natively in Termux (Node.js).
-- **Orchestrator Pattern**: Exposes 7 full tools for Claude to orchestrate tasks through OpenClaw, check gateway health, inspect logs, run self-healing, and execute Android shell commands.
+- **Orchestrator Pattern**: Exposes 10 tools for Claude to orchestrate tasks through OpenClaw, check gateway health, inspect logs, run self-healing, and execute Android shell commands.
 - **Dual Transport Mode**: 
   - `stdio` for local clients (Claude Desktop, Cursor).
   - `Streamable HTTP` for remote web clients (Claude.ai) via Cloudflare Tunnel.
@@ -48,35 +48,29 @@ This bridge exposes 10 tools to Claude, allowing it to fully manage and interact
 
 This setup is for when you want to use the MCP locally on your computer (e.g., Mac with Cursor or Claude Desktop) to connect to OpenClaw running on your Android device.
 
-1. **Enable OpenClaw HTTP Endpoints (Crucial)**
-   By default, OpenClaw disables HTTP endpoints. You must enable the OpenAI-compatible endpoint. Run this on your Termux device:
+1. **Install Prerequisites in Termux**
    ```bash
-   openclaw config set gateway.http.endpoints.chatCompletions.enabled true
-   openclaw gateway restart
+   pkg install nodejs git proot-distro -y
    ```
+   > **Note:** The OpenClaw gateway runs inside a proot-Ubuntu environment. Please follow the full setup in [docs/01-prereqs.md](docs/01-prereqs.md) before continuing.
 
-2. **Install Prerequisites in Termux**
-   ```bash
-   pkg install nodejs git tmux openssl-tool
-   ```
-
-3. **Clone & Build**
+2. **Clone & Build**
    ```bash
    git clone https://github.com/yourusername/openclaw-mcp-termux.git
    cd openclaw-mcp-termux
    npm install && npm run build
    ```
 
-4. **Configure Environment**
+3. **Configure Environment**
    ```bash
    cp .env.example .env
    ```
    Edit `.env` and set your `OPENCLAW_GATEWAY_TOKEN`. Find your token by running:
    ```bash
-   cat ~/.openclaw/secrets.json
+   grep OPENCLAW_GATEWAY_TOKEN ~/.openclaw/.env
    ```
 
-5. **Configure your MCP Client (e.g., Claude Desktop on Mac)**
+4. **Configure your MCP Client (e.g., Claude Desktop on Mac)**
    Since the MCP server runs on Android but your client runs on Mac, you need SSH to bridge them. Make sure you have an SSH alias `android` in `~/.ssh/config` pointing to Termux. Add this to your `claude_desktop_config.json`:
    ```json
    {
@@ -132,10 +126,10 @@ Here are the supported environment variables (see `.env.example`):
 | Variable | Required | Description | Default |
 |---|---|---|---|
 | `OPENCLAW_URL` | Yes | Local URL of your OpenClaw gateway | `http://127.0.0.1:18789` |
-| `OPENCLAW_GATEWAY_TOKEN` | Yes | Gateway token from `~/.openclaw/secrets.json` | - |
+| `OPENCLAW_GATEWAY_TOKEN` | Yes | Gateway token from `~/.openclaw/.env` | - |
 | `BRIDGE_TOKEN` | Remote Only | Bearer auth token for clients connecting to this MCP bridge | - |
 | `PORT` | No | Port for the HTTP transport server | `3000` |
-| `OPENCLAW_TIMEOUT_MS` | No | Timeout for gateway calls in milliseconds | `300000` (5 mins) |
+| `OPENCLAW_TIMEOUT_MS` | No | Timeout for gateway calls in milliseconds | `1800000` (30 mins) |
 | `DEBUG` | No | Enable verbose request logging | `false` |
 | `TRANSPORT` | No | Override transport mode (`stdio` or `http`) | `stdio` |
 

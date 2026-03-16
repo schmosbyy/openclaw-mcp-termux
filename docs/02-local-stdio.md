@@ -4,14 +4,17 @@ If you are using Claude Desktop, Cursor, or another MCP client running natively 
 
 This is the default mode. It sends MCP commands over standard input/output.
 
-## 1. Configure OpenClaw Gateway
-Ensure OpenClaw is running with its gateway enabled:
-`openclaw start`
+## 1. Start OpenClaw Gateway
+Ensure OpenClaw is running inside your proot-Ubuntu environment:
+```bash
+openclaw-proot.sh gateway
+```
+*Note: Run this in a persistent tmux session so it stays alive.*
 
 ## 2. Locate your gateway token
 Your OpenClaw gateway token is located in your `.openclaw` directory:
 ```bash
-cat ~/.openclaw/secrets.json
+grep OPENCLAW_GATEWAY_TOKEN ~/.openclaw/.env
 ```
 
 ## 3. Configure your MCP Client
@@ -25,7 +28,7 @@ Create/edit your configuration file (usually `claude_desktop_config.json`):
 {
   "mcpServers": {
     "openclaw-tani": {
-      "command": "node",
+      "command": "/data/data/com.termux/files/usr/bin/node",
       "args": ["/data/data/com.termux/files/home/openclaw-mcp-termux/dist/index.js"],
       "env": {
         "OPENCLAW_URL": "http://127.0.0.1:18789",
