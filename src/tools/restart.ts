@@ -7,7 +7,7 @@ const restartLog: number[] = [];
 
 export const restartTool = {
     name: 'openclaw_gateway_restart',
-    description: 'Restart the OpenClaw gateway service. Use this after doctor --fix if a restart is needed, or for degraded states.',
+    description: 'Note: Remote restart is not supported for this setup. The gateway runs in a physical Termux terminal. This tool will return instructions for manual restart.',
     inputSchema: {
         type: 'object',
         properties: {
@@ -21,61 +21,15 @@ export const restartTool = {
 };
 
 export async function handleRestart(client: OpenClawGatewayClient, input: any) {
-    const json = input.json ?? true;
-
-    // Enforce rate limiting
-    const now = Date.now();
-
-    // Remove old logs
-    while (restartLog.length > 0 && restartLog[0] < now - RESTART_WINDOW_MS) {
-        restartLog.shift();
-    }
-
-    if (restartLog.length >= RESTART_LIMIT) {
-        return {
-            isError: true,
-            content: [
-                {
-                    type: 'text',
-                    text: JSON.stringify({
-                        status: 'failed',
-                        message: `Rate limit exceeded: Please wait before restarting the gateway again. (Max ${RESTART_LIMIT} times per 10 minutes).`
-                    }, null, 2)
-                }
-            ]
-        };
-    }
-
-    try {
-        const response = await client.restartGateway(json);
-
-        // Record this restart
-        restartLog.push(now);
-
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: JSON.stringify(response, null, 2)
-                }
-            ]
-        };
-    } catch (err: any) {
-        return {
-            isError: true,
-            content: [
-                {
-                    type: 'text',
-                    text: JSON.stringify({
-                        ok: false,
-                        error: {
-                            code: err.code || 'UNKNOWN_ERROR',
-                            message: err.message,
-                            hint: err.hint
-                        }
-                    }, null, 2)
-                }
-            ]
-        };
-    }
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify({
+                ok: false,
+                status: 'manual_required',
+                message: 'The OpenClaw gateway runs inside a physical Termux terminal session and cannot be restarted remotely. Please restart it manually in Termux by stopping the current session and running: ~/bin/openclaw-proot.sh',
+                hint: 'If you need to apply a config change, most changes hot-reload automatically within seconds without a restart.'
+            }, null, 2)
+        }]
+    };
 }
