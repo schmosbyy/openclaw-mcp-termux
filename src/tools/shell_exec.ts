@@ -2,6 +2,7 @@ import { OpenClawGatewayClient } from '../gateway/client.js';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as os from 'node:os';
+import * as fs from 'node:fs';
 
 const execAsync = promisify(exec);
 
@@ -66,15 +67,18 @@ export async function handleShellExec(client: OpenClawGatewayClient, input: any)
     // Setup environment
     const env = { ...process.env };
     const termuxBin = '/data/data/com.termux/files/usr/bin';
-    const openclawNodeBin = '/data/data/com.termux/files/home/.openclaw-android/node/bin';
-    const pathsToAdd = [openclawNodeBin, termuxBin].filter(p => !env.PATH?.includes(p));
+    const pathsToAdd = [termuxBin].filter(p => !env.PATH?.includes(p));
     if (pathsToAdd.length > 0) {
         env.PATH = env.PATH ? `${pathsToAdd.join(':')}:${env.PATH}` : pathsToAdd.join(':');
     }
 
+    const glibcPatch = '/data/data/com.termux/files/home/.openclaw-android/patches/glibc-compat.js';
     if (!env.NODE_OPTIONS?.includes('glibc-compat')) {
-        const glibcPatch = '/data/data/com.termux/files/home/.openclaw-android/patches/glibc-compat.js';
-        env.NODE_OPTIONS = `--no-warnings=DEP0040 -r ${glibcPatch}`;
+        if (fs.existsSync(glibcPatch)) {
+            env.NODE_OPTIONS = `--no-warnings=DEP0040 -r ${glibcPatch}`;
+        } else {
+            env.NODE_OPTIONS = `--no-warnings=DEP0040`;
+        }
     }
 
     let finalOutput = '';
