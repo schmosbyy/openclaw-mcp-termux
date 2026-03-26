@@ -1,13 +1,10 @@
 import { OpenClawGatewayClient } from '../gateway/client.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
-
-const HOME = os.homedir();
 
 export const recentLogTool = {
     name: 'tani_recent_log',
-    description: 'Return the last N lines of the real OpenClaw gateway log (stderr/errors/crashes). Unlike openclaw_logs which may fall back to session lifecycle events, this tool ONLY reads the real PID-keyed gateway log at ~/openclaw-{PID}/openclaw-YYYY-MM-DD.log. Returns null log_path if gateway has never started. NOTE: The PID-keyed path (~/openclaw-{PID}/...) is broken on OpenClaw 2026.3.12. Log path for 2026.3.12+ is pending confirmation — this tool will return null until the correct path is patched in a follow-up commit.',
+    description: 'Return the last N lines of the real OpenClaw gateway log (stderr/errors/crashes). Reads from the proot-Ubuntu tmp directory at the confirmed path. Unlike openclaw_logs which reads only session lifecycle events, this reads the full gateway error log.',
     inputSchema: {
         type: 'object',
         properties: {
@@ -27,28 +24,25 @@ export async function handleRecentLog(
 ): Promise<{ isError?: boolean; content: Array<{ type: string; text: string }> }> {
     const lines = Math.min(input.lines ?? 50, 200);
     const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
     try {
-        // Find the real gateway log — PID-keyed directory
+        const PROOT_LOG_DIR = '/data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/ubuntu/tmp/openclaw';
         let logPath: string | null = null;
+        
+        const todayPath = path.join(PROOT_LOG_DIR, `openclaw-${today}.log`);
+        const yesterdayPath = path.join(PROOT_LOG_DIR, `openclaw-${yesterday}.log`);
+
         try {
-            const homeEntries = await fs.readdir(HOME);
-            for (const entry of homeEntries) {
-                if (!entry.startsWith('openclaw-')) continue;
-                // Verify it's a PID dir (digits only after prefix)
-                const suffix = entry.replace('openclaw-', '');
-                if (!/^\d+$/.test(suffix)) continue;
-                const candidate = path.join(HOME, entry, `openclaw-${today}.log`);
-                try {
-                    await fs.stat(candidate);
-                    logPath = candidate;
-                    break;
-                } catch {
-                    continue;
-                }
-            }
+            await fs.stat(todayPath);
+            logPath = todayPath;
         } catch {
-            // readdir failed
+            try {
+                await fs.stat(yesterdayPath);
+                logPath = yesterdayPath;
+            } catch {
+                logPath = null;
+            }
         }
 
         if (!logPath) {
@@ -59,7 +53,7 @@ export async function handleRecentLog(
                         log_path: null,
                         lines_returned: 0,
                         content: [],
-                        note: `PID-keyed log path is not valid on OpenClaw 2026.3.12+. Correct log location pending investigation. See GitHub issue for tracking.`
+                        note: `Log file not found for today (${today}) or yesterday (${yesterday}) in ${PROOT_LOG_DIR}. The gateway may not have written errors recently.`
                     }, null, 2)
                 }]
             };
