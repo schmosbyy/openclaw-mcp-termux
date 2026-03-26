@@ -31,16 +31,16 @@ This bridge exposes 10 tools to Claude, allowing it to fully manage and interact
 
 | Tool | Description |
 |------|-------------|
-| `tani_send` | Send a task or plan to the Tani orchestrator |
+| `tani_send` | Send a structured task or plan to the Tani orchestrator |
 | `tani_sessions_list` | List recent sessions for any agent |
 | `tani_sessions_detail` | Enriched session view: active state, subagent flag, last tool call |
 | `tani_agent_status` | Check gateway reachability and health (HTTP 400 = healthy by design) |
 | `tani_current_actions` | Check if any agent is currently busy — call before tani_send |
-| `system_health` | RAM, CPU, disk, and OpenClaw version snapshot |
-| `tani_recent_log` | Tail the gateway error/crash log ⚠️ broken on 2026.3.12, fix pending |
-| `openclaw_logs` | Session lifecycle event log (`~/.openclaw/logs/commands.log`) |
-| `openclaw_gateway_restart` | Restart the gateway service |
+| `tani_recent_log` | Tail the real gateway error/crash log from proot-Ubuntu |
+| `openclaw_logs` | Session lifecycle event log (~/.openclaw/logs/commands.log) |
+| `openclaw_gateway_restart` | Returns manual restart instructions (remote restart not supported) |
 | `shell_exec` | Execute shell commands on the Termux device |
+| `system_health` | RAM, CPU, disk, and OpenClaw version snapshot |
 
 ---
 
@@ -79,7 +79,7 @@ This setup is for when you want to use the MCP locally on your computer (e.g., M
          "command": "/usr/bin/ssh",
          "args": [
            "android",
-           "OPENCLAW_GATEWAY_TOKEN=your-token-here /data/data/com.termux/files/home/.openclaw-android/node/bin/node /data/data/com.termux/files/home/openclaw-mcp-termux/dist/index.js"
+           "OPENCLAW_GATEWAY_TOKEN=your-token-here /data/data/com.termux/files/usr/bin/node /data/data/com.termux/files/home/openclaw-mcp-termux/dist/index.js"
          ]
        }
      }
