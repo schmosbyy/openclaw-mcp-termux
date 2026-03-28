@@ -15,6 +15,7 @@ import { systemHealthTool, handleSystemHealth } from './tools/system_health.js';
 import { sessionsDetailTool, handleSessionsDetail } from './tools/sessions_detail.js';
 import { recentLogTool, handleRecentLog } from './tools/recent_log.js';
 import { strReplaceTool, handleStrReplace } from './tools/str_replace.js';
+import { fileWriteTool, handleFileWrite } from './tools/file_write.js';
 
 export function createServer(client: OpenClawGatewayClient): Server {
     const server = new Server(
@@ -43,7 +44,8 @@ export function createServer(client: OpenClawGatewayClient): Server {
                 systemHealthTool,
                 sessionsDetailTool,
                 recentLogTool,
-                strReplaceTool
+                strReplaceTool,
+                fileWriteTool
             ]
         };
     });
@@ -85,6 +87,9 @@ export function createServer(client: OpenClawGatewayClient): Server {
 
             case strReplaceTool.name:
                 return handleStrReplace(client, request.params.arguments || {});
+
+            case fileWriteTool.name:
+                return handleFileWrite(client, request.params.arguments || {});
 
             default:
                 throw new Error(`Unknown tool: ${request.params.name}`);
