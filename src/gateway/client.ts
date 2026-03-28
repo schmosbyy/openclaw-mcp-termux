@@ -194,11 +194,6 @@ export class OpenClawGatewayClient {
                 env.PATH = env.PATH ? `${pathsToAdd.join(':')}:${env.PATH}` : pathsToAdd.join(':');
             }
 
-            // Ensure the glibc compat patch is loaded (required for openclaw-android node)
-            if (!env.NODE_OPTIONS?.includes('glibc-compat')) {
-                const glibcPatch = '/data/data/com.termux/files/home/.openclaw-android/patches/glibc-compat.js';
-                env.NODE_OPTIONS = `--no-warnings=DEP0040 -r ${glibcPatch}`;
-            }
 
             const { stdout, stderr } = await execFileAsync(openclawBin, args, {
                 env,
