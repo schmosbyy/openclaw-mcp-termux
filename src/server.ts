@@ -13,7 +13,6 @@ import { shellExecTool, handleShellExec } from './tools/shell_exec.js';
 import { currentActionsTool, handleCurrentActions } from './tools/current_actions.js';
 import { systemHealthTool, handleSystemHealth } from './tools/system_health.js';
 import { sessionsDetailTool, handleSessionsDetail } from './tools/sessions_detail.js';
-import { recentLogTool, handleRecentLog } from './tools/recent_log.js';
 import { strReplaceTool, handleStrReplace } from './tools/str_replace.js';
 import { fileWriteTool, handleFileWrite } from './tools/file_write.js';
 
@@ -43,7 +42,6 @@ export function createServer(client: OpenClawGatewayClient): Server {
                 currentActionsTool,
                 systemHealthTool,
                 sessionsDetailTool,
-                recentLogTool,
                 strReplaceTool,
                 fileWriteTool
             ]
@@ -81,9 +79,6 @@ export function createServer(client: OpenClawGatewayClient): Server {
 
             case sessionsDetailTool.name:
                 return handleSessionsDetail(client, request.params.arguments || {});
-
-            case recentLogTool.name:
-                return handleRecentLog(client, request.params.arguments || {});
 
             case strReplaceTool.name:
                 return handleStrReplace(client, request.params.arguments || {});

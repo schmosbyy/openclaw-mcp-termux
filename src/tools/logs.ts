@@ -1,194 +1,193 @@
 import { OpenClawGatewayClient } from '../gateway/client.js';
 import * as fs from 'node:fs/promises';
-import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { exec } from 'node:child_process';
+import * as util from 'node:util';
+
+const execAsync = util.promisify(exec);
 
 export const logsTool = {
     name: 'openclaw_logs',
-    description: 'Fetch recent OpenClaw gateway logs to debug tool failures and connection issues.',
+    description: 'Fetch openclaw gateway logs, session commands, or heartbeat data into a single tool.',
     inputSchema: {
         type: 'object',
         properties: {
-            limit: {
-                type: 'number',
-                description: 'Number of recent lines to fetch.',
-                default: 100
-            },
-            json: {
-                type: 'boolean',
-                description: 'Returns line-delimited JSON log events.',
-                default: true
-            },
-            level: {
+            scenario: {
                 type: 'string',
-                description: 'Filter by log level: "error", "warn", "info", "debug"',
+                enum: ['gateway', 'gateway_errors', 'commands', 'heartbeat', 'rclone', 'health'],
+                description: 'The log scenario to fetch:\n- "gateway": real gateway log, ANSI-stripped, secrets redacted\n- "gateway_errors": same log, filtered to ERROR or WARN\n- "commands": session lifecycle events\n- "heartbeat": Daily note + git log + rclone log\n- "rclone": rclone backup log\n- "health": HTTP health check endpoint'
             },
-            follow: {
-                type: 'boolean',
-                description: 'Tail in real time. (Ignored for MCP snapshots)',
-                default: false
+            tail: {
+                type: 'number',
+                description: 'Lines to return. Default 50, max 200. Ignored for "health".',
+                default: 50
             }
         },
-        required: []
+        required: ['scenario']
     }
 };
 
-export async function handleLogs(client: OpenClawGatewayClient, input: any) {
-    let limit = input.limit ?? 100;
-    if (limit > 500) limit = 500;
-    const json = input.json ?? true;
-    const level = input.level;
-
-    // Resolve log path:
-    // 1. PRIMARY: Real gateway log at ~/openclaw-{PID}/openclaw-YYYY-MM-DD.log
-    //    This file contains actual gateway stderr, crashes, and errors.
-    //    The PID-keyed directory is created by the gateway on startup.
-    // 2. FALLBACK: ~/.openclaw/logs/commands.log
-    //    This file only contains session lifecycle events (new/reset) — not gateway errors.
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const home = os.homedir();
-    let logPath = path.join(home, '.openclaw', 'logs', 'commands.log');
-
+async function readTailLines(filePath: string, lines: number): Promise<string[]> {
     try {
-        const homeEntries = await fs.readdir(home);
-        const gatewayDirs = homeEntries.filter(e => e.startsWith('openclaw-'));
-        for (const dir of gatewayDirs) {
-            const candidate = path.join(home, dir, `openclaw-${today}.log`);
-            try {
-                await stat(candidate);
-                // Found a real gateway log — use it instead of commands.log
-                logPath = candidate;
-                break;
-            } catch {
-                // This candidate doesn't exist, try next
-            }
-        }
-    } catch {
-        // readdir on home failed; fall back to commands.log silently
-    }
-
-    try {
-        let fileStat;
-        try {
-            fileStat = await stat(logPath);
-        } catch (err: any) {
-            if (err.code === 'ENOENT') {
-                return {
-                    content: [{
-                        type: 'text',
-                        text: `Log file not found at ${logPath}. Gateway may not have written logs yet.`
-                    }]
-                };
-            }
-            throw err;
-        }
-
-        let fileHandle;
+        const stat = await fs.stat(filePath);
+        const readSize = Math.min(stat.size, 1024 * 100); // max 100KB read
+        const position = Math.max(0, stat.size - readSize);
+        const fh = await fs.open(filePath, 'r');
         let content = '';
+
         try {
-            fileHandle = await fs.open(logPath, 'r');
-            // If file is > 5MB, read only the last 5MB.
-            const MAX_BYTES = 5 * 1024 * 1024;
-            const size = fileStat.size;
-            const readSize = Math.min(size, MAX_BYTES);
-            const position = size > MAX_BYTES ? size - MAX_BYTES : 0;
-            const buffer = Buffer.alloc(readSize);
-            await fileHandle.read(buffer, 0, readSize, position);
-            content = buffer.toString('utf-8');
+            const buf = Buffer.alloc(readSize);
+            await fh.read(buf, 0, readSize, position);
+            content = buf.toString('utf-8');
             if (position > 0) {
-                // we might have started mid-line, chop off the first partial line
-                const firstNewlineIndex = content.indexOf('\n');
-                if (firstNewlineIndex !== -1) {
-                    content = content.substring(firstNewlineIndex + 1);
-                }
+                const firstNewline = content.indexOf('\n');
+                if (firstNewline !== -1) content = content.substring(firstNewline + 1);
             }
+            return content.split('\n').filter(Boolean).slice(-lines);
         } finally {
-            if (fileHandle) {
-                await fileHandle.close();
-            }
+            await fh.close();
         }
-
-        let lines = content.split('\n');
-        // Ignore potentially empty last line if file ends in newline
-        if (lines.length > 0 && lines[lines.length - 1] === '') {
-            lines.pop();
+    } catch (err: any) {
+        if (err.code === 'ENOENT') {
+            return [`File not found: ${filePath}`];
         }
+        return [`Error reading ${filePath}: ${err.message}`];
+    }
+}
 
-        // Apply level filter
-        if (level) {
-            const levelSearch = `[${level.toLowerCase()}]`;
-            lines = lines.filter(line => line.toLowerCase().includes(levelSearch));
-        }
+function redactTokens(text: string): string {
+    return text
+        .replace(/nvapi-[A-Za-z0-9_-]+/g, '[REDACTED_TOKEN]')
+        .replace(/Bearer [A-Za-z0-9_.-]+/ig, 'Bearer [REDACTED]');
+}
 
-        // Slice last N lines
-        lines = lines.slice(-limit);
+function stripAnsi(text: string): string {
+    return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
 
-        // Process lines and scrub secrets
-        const processedLines = lines.map(line => {
-            if (json) {
-                let result;
+async function getMostRecentGatewayLog(): Promise<string | null> {
+    const PROOT_LOG_DIR = '/data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/ubuntu/tmp/openclaw';
+    try {
+        const files = await fs.readdir(PROOT_LOG_DIR);
+        let newestFile: string | null = null;
+        let newestMtime = 0;
+
+        for (const file of files) {
+            if (file.startsWith('openclaw-') && file.endsWith('.log')) {
+                const fullPath = path.join(PROOT_LOG_DIR, file);
                 try {
-                    result = JSON.parse(line);
-                } catch (e) {
-                    result = { raw: line, ts: null };
-                }
-
-                if (result !== null && typeof result === 'object') {
-                    if (typeof result.message === 'string') {
-                        result.message = result.message.replace(/nvapi-[A-Za-z0-9_-]+/g, '[REDACTED_TOKEN]');
-                        result.message = result.message.replace(/Bearer [A-Za-z0-9_\.-]+/ig, 'Bearer [REDACTED_TOKEN]');
+                    const stats = await fs.stat(fullPath);
+                    if (stats.mtimeMs > newestMtime) {
+                        newestMtime = stats.mtimeMs;
+                        newestFile = fullPath;
                     }
-                    if (result.context) {
-                        let ctxStr = typeof result.context === 'string' ? result.context : JSON.stringify(result.context);
-                        const scrubbed = ctxStr
-                            .replace(/nvapi-[A-Za-z0-9_-]+/g, '[REDACTED_TOKEN]')
-                            .replace(/Bearer [A-Za-z0-9_\.-]+/ig, 'Bearer [REDACTED_TOKEN]');
-                        try {
-                            result.context = JSON.parse(scrubbed);
-                        } catch (e) {
-                            result.context = scrubbed;
-                        }
-                    }
+                } catch {
+                    // Ignore stat errors for individual files
                 }
-                return JSON.stringify(result);
-            } else {
-                return line
-                    .replace(/nvapi-[A-Za-z0-9_-]+/g, '[REDACTED_TOKEN]')
-                    .replace(/Bearer [A-Za-z0-9_\.-]+/ig, 'Bearer [REDACTED_TOKEN]');
             }
-        });
+        }
+        return newestFile;
+    } catch {
+        return null; // Dir doesn't exist or can't be read
+    }
+}
 
-        const headerLevel = level ? level : "all";
-        const header = `// source: ${logPath} | lines: ${processedLines.length} | level: ${headerLevel}`;
+export async function handleLogs(
+    client: OpenClawGatewayClient,
+    input: any
+): Promise<{ isError?: boolean; content: Array<{ type: string; text: string }> }> {
+    try {
+        const scenario = input.scenario;
+        if (!['gateway', 'gateway_errors', 'commands', 'heartbeat', 'rclone', 'health'].includes(scenario)) {
+             return {
+                 isError: true,
+                 content: [{ type: 'text', text: `Invalid scenario: ${scenario}` }]
+             };
+        }
 
-        let finalText = header + (processedLines.length > 0 ? ('\n' + processedLines.join('\n')) : '');
+        const tail = Math.min(input.tail ?? 50, 200);
+        const home = os.homedir();
 
-        if (input.follow) {
-            finalText += '\n// (Live tail not supported in MCP snapshot mode)';
+        let resultText = '';
+
+        if (scenario === 'gateway' || scenario === 'gateway_errors') {
+            const logPath = await getMostRecentGatewayLog();
+            if (!logPath) {
+                resultText = `No gateway logs found in /data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/ubuntu/tmp/openclaw`;
+            } else {
+                let lines = await readTailLines(logPath, 5000); // Read a generous tail to allow filtering
+                lines = lines.map(l => stripAnsi(redactTokens(l)));
+                
+                if (scenario === 'gateway_errors') {
+                    lines = lines.filter(l => l.includes('ERROR') || l.includes('WARN'));
+                }
+                
+                lines = lines.slice(-tail);
+                resultText = `// source: ${logPath}\n${lines.join('\n')}`;
+            }
+        } 
+        else if (scenario === 'commands') {
+            const logPath = path.join(home, '.openclaw', 'logs', 'commands.log');
+            const lines = await readTailLines(logPath, tail);
+            resultText = `// source: ${logPath}\n${lines.map(redactTokens).join('\n')}`;
+        }
+        else if (scenario === 'rclone') {
+            const logPath = path.join(home, 'tmp', 'rclone-backup.log');
+            const lines = await readTailLines(logPath, tail);
+            resultText = `// source: ${logPath}\n${lines.map(redactTokens).join('\n')}`;
+        }
+        else if (scenario === 'heartbeat') {
+            const today = new Date().toISOString().slice(0, 10);
+            const dailyNotePath = path.join(home, '.openclaw', 'workspace', 'TaniVault', 'Daily', `${today}.md`);
+            const workspaceDir = path.join(home, '.openclaw', 'workspace');
+            const rcloneLog = path.join(home, 'tmp', 'rclone-backup.log');
+
+            const [dailyNote, gitLog, rcloneTail] = await Promise.all([
+                fs.readFile(dailyNotePath, 'utf-8').catch(e => {
+                    if (e.code === 'ENOENT') return `[File not found: ${dailyNotePath}]`;
+                    return `[Error reading: ${e.message}]`;
+                }),
+                execAsync('git log --oneline -5', { cwd: workspaceDir }).then(r => r.stdout).catch(e => `[Git error: ${e.message}]`),
+                readTailLines(rcloneLog, 20).then(lines => lines.join('\n'))
+            ]);
+
+            resultText = [
+                `--- TANI VAULT DAILY NOTE (${today}) ---`,
+                dailyNote,
+                `\n--- WORKSPACE GIT LOG ---`,
+                gitLog.trimEnd(),
+                `\n--- RCLONE BACKUP LOG (LAST 20 LINES) ---`,
+                rcloneTail
+            ].join('\n');
+        }
+        else if (scenario === 'health') {
+            try {
+                // Ignore Node.js fetch type definitions complaining here
+                // It works on Node 18+ globally
+                const response = await fetch('http://localhost:18789/health');
+                if (!response.ok) {
+                    resultText = `HTTP Error: ${response.status} ${response.statusText}`;
+                } else {
+                    const text = await response.text();
+                    resultText = text;
+                }
+            } catch (err: any) {
+                resultText = `Fetch error: ${err.message}`;
+            }
         }
 
         return {
             content: [{
                 type: 'text',
-                text: finalText
+                text: resultText
             }]
         };
 
     } catch (err: any) {
         return {
             isError: true,
-            content: [{
-                type: 'text',
-                text: JSON.stringify({
-                    ok: false,
-                    error: {
-                        code: err.code || 'UNKNOWN_ERROR',
-                        message: err.message,
-                        hint: err.hint
-                    }
-                }, null, 2)
-            }]
+            content: [{ type: 'text', text: JSON.stringify({ ok: false, error: { code: err.code || 'UNKNOWN', message: err.message } }, null, 2) }]
         };
     }
 }
