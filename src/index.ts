@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import * as http from 'node:http';
 import { OpenClawGatewayClient } from './gateway/client.js';
+import { TokenProvider } from './gateway/token-provider.js';
 import { createServer } from './server.js';
 import { createTransport } from './transport.js';
 import { checkBearerToken, handleUnauthorized } from './auth.js';
@@ -29,7 +30,28 @@ async function main() {
         process.exit(1);
     }
 
-    const client = new OpenClawGatewayClient(gatewayUrl, gatewayToken, timeoutMs);
+    let deviceId = process.env.OPENCLAW_DEVICE_ID || '';
+    if (!deviceId) {
+        deviceId = await TokenProvider.detectDeviceId() ?? '';
+        if (deviceId) {
+            console.error(`[startup] auto-detected device ID: ${deviceId.substring(0, 8)}...`);
+        } else {
+            console.error(`[startup] WARN: no OPENCLAW_DEVICE_ID and auto-detect failed, token rotation resilience disabled`);
+        }
+    }
+
+    const tokenProvider = new TokenProvider(gatewayToken, deviceId);
+
+    // Eagerly refresh — get the current token from paired.json right now.
+    // This handles the case where the .env token is already stale on startup.
+    if (deviceId) {
+        const fresh = await tokenProvider.refresh();
+        if (fresh && fresh !== gatewayToken) {
+            console.error(`[startup] .env token was stale, loaded current token from paired.json`);
+        }
+    }
+
+    const client = new OpenClawGatewayClient(gatewayUrl, tokenProvider, timeoutMs);
     const mcpServer = createServer(client);
     const transport = createTransport(transportMode);
 

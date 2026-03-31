@@ -1,4 +1,5 @@
 import { CommandResponse, HealthResponse, OpenAIChatCompletionResponse, SessionsResponse, DoctorResponse, RestartResponse } from './types.js';
+import { TokenProvider } from './token-provider.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -8,12 +9,12 @@ const execFileAsync = promisify(execFile);
 
 export class OpenClawGatewayClient {
     readonly baseUrl: string;
-    readonly token: string;
+    private tokenProvider: TokenProvider;
     readonly timeoutMs: number;
 
-    constructor(baseUrl: string, token: string, timeoutMs: number) {
+    constructor(baseUrl: string, tokenProvider: TokenProvider, timeoutMs: number) {
         this.baseUrl = baseUrl.replace(/\/$/, '');
-        this.token = token;
+        this.tokenProvider = tokenProvider;
         this.timeoutMs = timeoutMs;
     }
 
@@ -21,8 +22,9 @@ export class OpenClawGatewayClient {
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
         };
-        if (this.token) {
-            headers['Authorization'] = `Bearer ${this.token}`;
+        const token = this.tokenProvider.getToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
         }
         return { ...headers, ...extra };
     }
@@ -77,6 +79,12 @@ export class OpenClawGatewayClient {
      * Send a message via the OpenAI-compatible /v1/chat/completions endpoint.
      */
     async sendCommand(agentId: string, message: string, sessionId?: string): Promise<CommandResponse> {
+        return this._sendCommandAttempt(agentId, message, sessionId, false);
+    }
+
+    private async _sendCommandAttempt(
+        agentId: string, message: string, sessionId: string | undefined, isRetry: boolean
+    ): Promise<CommandResponse> {
         const url = `${this.baseUrl}/v1/chat/completions`;
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -107,6 +115,16 @@ export class OpenClawGatewayClient {
             if (!response.ok) {
                 let errorMsg = `HTTP ${response.status}`;
                 try { errorMsg = await response.text(); } catch { }
+
+                if ((response.status === 401 || response.status === 403) && !isRetry) {
+                    // Token was rotated. Refresh from paired.json and retry once.
+                    const refreshed = await this.tokenProvider.refresh();
+                    if (refreshed) {
+                        console.error(`[client] auth failed, refreshed token, retrying`);
+                        return this._sendCommandAttempt(agentId, message, sessionId, true);
+                    }
+                    throw this.createError('GATEWAY_AUTH_FAILED', `Authentication failed (${response.status})`, 'Token refresh attempted but no valid token found in paired.json. Check ~/.openclaw/devices/paired.json.');
+                }
 
                 if (response.status === 401 || response.status === 403) {
                     throw this.createError('GATEWAY_AUTH_FAILED', `Authentication failed (${response.status})`, 'Check your OPENCLAW_GATEWAY_TOKEN against ~/.openclaw/secrets.json');
