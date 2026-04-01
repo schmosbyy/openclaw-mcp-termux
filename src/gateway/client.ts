@@ -1,4 +1,4 @@
-import { CommandResponse, HealthResponse, OpenAIChatCompletionResponse, SessionsResponse, DoctorResponse, RestartResponse } from './types.js';
+import { HealthResponse, SessionsResponse, DoctorResponse, RestartResponse } from './types.js';
 import { TokenProvider } from './token-provider.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -75,84 +75,6 @@ export class OpenClawGatewayClient {
         }
     }
 
-    /**
-     * Send a message via the OpenAI-compatible /v1/chat/completions endpoint.
-     */
-    async sendCommand(agentId: string, message: string, sessionId?: string): Promise<CommandResponse> {
-        return this._sendCommandAttempt(agentId, message, sessionId, false);
-    }
-
-    private async _sendCommandAttempt(
-        agentId: string, message: string, sessionId: string | undefined, isRetry: boolean
-    ): Promise<CommandResponse> {
-        const url = `${this.baseUrl}/v1/chat/completions`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-        const body: Record<string, unknown> = {
-            model: 'default',
-            messages: [{ role: 'user', content: message }],
-            max_tokens: 4096,
-        };
-
-        if (sessionId) {
-            body.session_id = sessionId;
-        }
-
-        const extraHeaders: Record<string, string> = {};
-        if (sessionId) {
-            extraHeaders['x-openclaw-session-key'] = sessionId;
-        }
-
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                signal: controller.signal,
-                headers: this.buildHeaders(extraHeaders),
-                body: JSON.stringify(body),
-            });
-
-            if (!response.ok) {
-                let errorMsg = `HTTP ${response.status}`;
-                try { errorMsg = await response.text(); } catch { }
-
-                if ((response.status === 401 || response.status === 403) && !isRetry) {
-                    // Token was rotated. Refresh from paired.json and retry once.
-                    const refreshed = await this.tokenProvider.refresh();
-                    if (refreshed) {
-                        console.error(`[client] auth failed, refreshed token, retrying`);
-                        return this._sendCommandAttempt(agentId, message, sessionId, true);
-                    }
-                    throw this.createError('GATEWAY_AUTH_FAILED', `Authentication failed (${response.status})`, 'Token refresh attempted but no valid token found in paired.json. Check ~/.openclaw/devices/paired.json.');
-                }
-
-                if (response.status === 401 || response.status === 403) {
-                    throw this.createError('GATEWAY_AUTH_FAILED', `Authentication failed (${response.status})`, 'Check your OPENCLAW_GATEWAY_TOKEN against ~/.openclaw/secrets.json');
-                }
-                throw this.createError('GATEWAY_ERROR', `Gateway returned error: ${errorMsg}`);
-            }
-
-            const completion = (await response.json()) as OpenAIChatCompletionResponse;
-            const content = completion.choices?.[0]?.message?.content ?? '';
-
-            return {
-                response: content,
-                model: completion.model,
-                usage: completion.usage,
-            };
-        } catch (err: any) {
-            if (err.code) throw err; // Already structured
-            if (err.name === 'AbortError') {
-                throw this.createError('GATEWAY_TIMEOUT', `Gateway request timed out after ${this.timeoutMs}ms`, 'Tani may be processing. Increase OPENCLAW_TIMEOUT_MS.');
-            }
-            if (err.message?.includes('fetch failed') || err.code === 'ECONNREFUSED') {
-                throw this.createError('GATEWAY_UNREACHABLE', `Could not connect to OpenClaw gateway at ${this.baseUrl}`, 'Ensure OpenClaw is running: openclaw start');
-            }
-            throw this.createError('TOOL_ERROR', err.message || String(err));
-        } finally {
-            clearTimeout(timeout);
-        }
-    }
 
     /**
      * List sessions by reading the sessions.json file from disk.
