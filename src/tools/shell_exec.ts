@@ -18,7 +18,7 @@ export const shellExecTool = {
             },
             timeout: {
                 type: 'number',
-                description: 'Timeout in milliseconds (max 30000ms). Default is 10000ms.'
+                description: 'Timeout in milliseconds (max 300000ms). Default is 10000ms.'
             },
             cwd: {
                 type: 'string',
@@ -59,7 +59,7 @@ export async function handleShellExec(client: OpenClawGatewayClient, input: any)
 
     let timeoutMs = input.timeout !== undefined ? Number(input.timeout) : 10000;
     if (isNaN(timeoutMs) || timeoutMs <= 0) timeoutMs = 10000;
-    if (timeoutMs > 30000) timeoutMs = 30000;
+    if (timeoutMs > 300000) timeoutMs = 300000;  // 5 min cap
 
     let cwd = input.cwd ? String(input.cwd) : os.homedir();
     cwd = cwd.replace(/^~(?=$|\/|\\)/, os.homedir());
