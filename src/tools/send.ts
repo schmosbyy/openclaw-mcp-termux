@@ -1,12 +1,50 @@
 export const sendTool = {
     name: 'tani_send',
-    description: 'Send a detailed plan or message to Tani, the OpenClaw orchestrator. Tani will use your plan to execute tasks by delegating to specialized subagents (Alan for coding, Rachel for documents) or doing internal searches. The message should contain structured steps and full context. Only call this tool when the user has explicitly requested execution (e.g. "do it", "send it", "execute"). If the user asks for a plan, prompt, or artifact — produce that output instead. Do not call speculatively.',
+    description: 'Send a detailed plan or message to an OpenClaw agent. Can route to Tani (main - orchestrator), Alan (coding), or Rachel (rachel - documents). Setting deliver: true with channel: "telegram" and to: "8098495952" causes the agent to reply directly in Telegram via their own bot. The message should contain structured steps and full context. Only call this tool when the user has explicitly requested execution. Do not call speculatively.',
     inputSchema: {
         type: 'object',
         properties: {
             message: {
                 type: 'string',
-                description: 'The detailed plan or message to send to Tani.'
+                description: 'The detailed plan or message to send.'
+            },
+            agentId: {
+                type: 'string',
+                enum: ['main', 'coding', 'rachel'],
+                description: 'Which agent to route to. Defaults to main.'
+            },
+            wakeMode: {
+                type: 'string',
+                enum: ['now', 'next-heartbeat'],
+                description: 'When to wake the agent. Defaults to now.'
+            },
+            name: {
+                type: 'string',
+                description: 'Name for log traceability.'
+            },
+            sessionKey: {
+                type: 'string',
+                description: 'Session key to target a specific session.'
+            },
+            deliver: {
+                type: 'boolean',
+                description: 'Whether to deliver the response to a channel.'
+            },
+            channel: {
+                type: 'string',
+                description: 'Delivery channel (e.g., telegram).'
+            },
+            to: {
+                type: 'string',
+                description: 'Recipient ID for delivery.'
+            },
+            model: {
+                type: 'string',
+                description: 'Model override for the agent.'
+            },
+            timeoutSeconds: {
+                type: 'number',
+                description: 'Timeout in seconds for processing.'
             }
         },
         required: ['message']
@@ -14,7 +52,18 @@ export const sendTool = {
 };
 
 export async function handleSend(_client: any, input: any) {
-    const { message } = input;
+    const {
+        message,
+        agentId = 'main',
+        wakeMode = 'now',
+        name,
+        sessionKey,
+        deliver,
+        channel,
+        to,
+        model,
+        timeoutSeconds
+    } = input;
     
     const secret = process.env.OPENCLAW_HOOK_SECRET;
     if (!secret) {
@@ -41,6 +90,15 @@ export async function handleSend(_client: any, input: any) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
 
+    const payload: Record<string, any> = { message, agentId, wakeMode };
+    if (name !== undefined) payload.name = name;
+    if (sessionKey !== undefined) payload.sessionKey = sessionKey;
+    if (deliver !== undefined) payload.deliver = deliver;
+    if (channel !== undefined) payload.channel = channel;
+    if (to !== undefined) payload.to = to;
+    if (model !== undefined) payload.model = model;
+    if (timeoutSeconds !== undefined) payload.timeoutSeconds = timeoutSeconds;
+
     try {
         const response = await fetch(url, {
             method: 'POST',
@@ -49,11 +107,7 @@ export async function handleSend(_client: any, input: any) {
                 'Content-Type': 'application/json',
                 'x-openclaw-token': secret
             },
-            body: JSON.stringify({
-                message,
-                agentId: 'main',
-                wakeMode: 'now'
-            })
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
