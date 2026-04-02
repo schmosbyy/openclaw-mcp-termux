@@ -18,6 +18,7 @@ import { fileWriteTool, handleFileWrite } from './tools/file_write.js';
 import { fileReadTool, handleFileRead } from './tools/file_read.js';
 import { fileSearchTool, handleFileSearch } from './tools/file_search.js';
 import { openclawConfigTool, handleOpenclawConfig } from './tools/openclaw_config.js';
+import { completionsChatTool, handleCompletionsChat } from './tools/completions_chat.js';
 
 export function createServer(client: OpenClawGatewayClient): Server {
     const server = new Server(
@@ -49,7 +50,8 @@ export function createServer(client: OpenClawGatewayClient): Server {
                 fileWriteTool,
                 fileReadTool,
                 fileSearchTool,
-                openclawConfigTool
+                openclawConfigTool,
+                completionsChatTool
             ]
         };
     });
@@ -100,6 +102,9 @@ export function createServer(client: OpenClawGatewayClient): Server {
 
             case openclawConfigTool.name:
                 return handleOpenclawConfig(client, request.params.arguments || {});
+
+            case completionsChatTool.name:
+                return handleCompletionsChat(client, request.params.arguments || {});
 
             default:
                 throw new Error(`Unknown tool: ${request.params.name}`);
