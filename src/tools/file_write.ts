@@ -5,7 +5,7 @@ import * as os from 'node:os';
 
 export const fileWriteTool = {
     name: 'file_write',
-    description: 'Create or overwrite a file with the given content. Content goes through JSON parameters — never a shell — so there are no escaping or newline-stripping issues. Automatically creates parent directories if they do not exist. Use this for new files and full rewrites. For targeted edits to existing files, use file_str_replace instead.',
+    description: 'Create or overwrite a file with the given content. Content goes through JSON parameters — never a shell — so there are no escaping or newline-stripping issues. Automatically creates parent directories if they do not exist. Use this for new files and full rewrites. For targeted edits to existing files, use file_edit instead.',
     inputSchema: {
         type: 'object',
         properties: {

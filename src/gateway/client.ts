@@ -1,11 +1,11 @@
-import { HealthResponse, SessionsResponse, DoctorResponse, RestartResponse } from './types.js';
+import { HealthResponse, SessionsResponse, DoctorResponse, InvokeToolResponse, SpawnSessionResponse } from './types.js';
 import { TokenProvider } from './token-provider.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { execFile } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 
-const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 export class OpenClawGatewayClient {
     readonly baseUrl: string;
@@ -37,34 +37,50 @@ export class OpenClawGatewayClient {
     }
 
     /**
-     * Health check: send a minimal chat completion request.
-     * A 400 means the gateway is alive (parsed JSON, rejected input).
-     * A 200 means healthy. Connection errors mean gateway is down.
+     * Execute an OpenClaw CLI command via SSH to proot (~200ms tunnel + CLI time).
+     * This replaces the old wrapper script approach which had 2-10s cold start.
+     * SSH exit code 255 on interactive commands is normal — ignore code, trust stdout.
+     */
+    private async execViaSSH(args: string[]): Promise<string> {
+        const command = `ssh proot "openclaw ${args.join(' ')}"`;
+        try {
+            const { stdout, stderr } = await execAsync(command, {
+                timeout: 60000,
+                maxBuffer: 10 * 1024 * 1024
+            });
+            return (stdout || '').trim();
+        } catch (err: any) {
+            // SSH returns exit 255 for interactive/TUI commands — output is still valid
+            if (err.stdout) {
+                return err.stdout.trim();
+            }
+            throw this.createError('TOOL_ERROR', `SSH command failed: ${err.message}`);
+        }
+    }
+
+    // ─── Health ────────────────────────────────────────────────────────
+
+    /**
+     * Health check via GET /health (38ms, proper endpoint).
+     * Replaces the old malformed chat request hack.
      */
     async getHealth(): Promise<HealthResponse> {
-        const url = `${this.baseUrl}/v1/chat/completions`;
+        const url = `${this.baseUrl}/health`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+        const timeout = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, 5000));
 
         try {
             const response = await fetch(url, {
-                method: 'POST',
+                method: 'GET',
                 signal: controller.signal,
-                headers: this.buildHeaders(),
-                body: JSON.stringify({
-                    model: 'health-check',
-                    messages: [],
-                    max_tokens: 1,
-                }),
             });
 
-            // Both 2xx and 4xx mean the gateway is alive and processing
-            // (400 is the EXPECTED response for a malformed health-check request)
-            if (response.status >= 200 && response.status < 500) {
-                return { status: 'ok', message: 'Healthy' };
+            if (response.ok) {
+                const text = await response.text();
+                return { status: 'ok', message: text || 'Healthy' };
             }
 
-            return { status: 'error', message: `Gateway error (HTTP ${response.status})` };
+            return { status: 'error', message: `Gateway returned HTTP ${response.status}` };
         } catch (err: any) {
             if (err.name === 'AbortError') {
                 throw this.createError('GATEWAY_TIMEOUT', `Gateway request timed out after ${this.timeoutMs}ms`);
@@ -75,10 +91,10 @@ export class OpenClawGatewayClient {
         }
     }
 
+    // ─── Sessions (filesystem) ─────────────────────────────────────────
 
     /**
-     * List sessions by reading the sessions.json file from disk.
-     * This matches how the working MCP operates — filesystem access, not HTTP.
+     * List sessions by reading sessions.json from disk (~16ms).
      */
     async listSessions(agentId: string = 'main'): Promise<SessionsResponse> {
         const home = process.env.HOME || '/data/data/com.termux/files/home';
@@ -88,8 +104,6 @@ export class OpenClawGatewayClient {
             const raw = await fs.readFile(sessionsPath, 'utf-8');
             const data = JSON.parse(raw);
 
-            // Map real sessions.json shape: keyed by sessionKey string
-            // Each entry: { sessionId, updatedAt (epoch ms), chatType, compactionCount, abortedLastRun, sessionFile }
             const sessions = Object.entries(data).map(([sessionKey, entry]: [string, any]) => ({
                 sessionKey,
                 sessionId: entry.sessionId || 'unknown',
@@ -108,82 +122,242 @@ export class OpenClawGatewayClient {
         }
     }
 
+    // ─── Gateway HTTP API ──────────────────────────────────────────────
+
     /**
-     * Execute a local shell command securely as OpenClaw CLI
+     * Invoke a gateway tool directly via POST /tools/invoke.
+     * Useful for session management, tool execution without a full agent turn.
      */
-    private async execOpenClaw(args: string[]): Promise<string> {
+    async invokeTool(toolName: string, args: Record<string, any> = {}): Promise<InvokeToolResponse> {
+        const url = `${this.baseUrl}/tools/invoke`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+
         try {
-            // First, allow the user to explicitly define where the openclaw binary is via the environment
-            // This is the most reliable way when running via a non-interactive SSH shell.
-            let openclawBin = process.env.OPENCLAW_BIN_PATH;
-
-            // If they didn't provide it, let's try to guess the most likely location in Termux
-            if (!openclawBin) {
-                // Default to the gateway wrapper script.
-                // Can be overridden via OPENCLAW_BIN_PATH env var.
-                openclawBin = '/data/data/com.termux/files/home/bin/openclaw-proot.sh';
-            }
-
-            // Ensure both Termux bin and the OpenClaw node bin are in PATH.
-            // This is critical: the openclaw script uses `#!/usr/bin/env node`, so `env` must
-            // be able to resolve `node` — which lives in the openclaw-android node bin directory.
-            const env = { ...process.env };
-            const termuxBin = '/data/data/com.termux/files/usr/bin';
-            const pathsToAdd = [termuxBin].filter(p => !env.PATH?.includes(p));
-            if (pathsToAdd.length > 0) {
-                env.PATH = env.PATH ? `${pathsToAdd.join(':')}:${env.PATH}` : pathsToAdd.join(':');
-            }
-
-
-            const { stdout, stderr } = await execFileAsync(openclawBin, args, {
-                env,
-                timeout: 60000, // 60s max
-                maxBuffer: 10 * 1024 * 1024 // 10MB max buffer for logs
+            const response = await fetch(url, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: this.buildHeaders(),
+                body: JSON.stringify({ tool_name: toolName, arguments: args }),
             });
-            return stdout.trim();
-        } catch (err: any) {
-            if (err.stdout) {
-                // The CLI returned non-zero, but might have printed valid JSON
-                return err.stdout.trim();
+
+            if (response.status === 401) {
+                const retried = await this.refreshOn401(response);
+                if (retried) return this.invokeTool(toolName, args);
             }
-            throw this.createError('TOOL_ERROR', `Command execution failed: ${err.message}`);
+
+            if (!response.ok) {
+                let errorMsg = `HTTP ${response.status}`;
+                try { errorMsg = await response.text(); } catch { }
+                return { ok: false, error: errorMsg };
+            }
+
+            const data = await response.json();
+            return { ok: true, result: data.result ?? data.tool_output ?? data };
+        } catch (err: any) {
+            return { ok: false, error: err.message };
+        } finally {
+            clearTimeout(timeout);
         }
     }
 
     /**
-     * Run OpenClaw doctor
-     * Valid flags: --fix, --non-interactive only.
-     * --json and --deep do NOT exist in the openclaw CLI and will cause an error.
+     * Spawn a sub-agent session via POST /sessions_spawn.
+     * Non-blocking — returns immediately with runId + childSessionKey.
+     * This is the proper parent→child delegation mechanism for the God Orchestrator pattern.
+     */
+    async spawnSession(task: string, opts: {
+        runtime?: string;
+        agentId?: string;
+        model?: string;
+        thinking?: string;
+        runTimeoutSeconds?: number;
+        mode?: string;
+        cleanup?: string;
+    } = {}): Promise<SpawnSessionResponse> {
+        const url = `${this.baseUrl}/sessions_spawn`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+
+        const payload: Record<string, any> = { task };
+        if (opts.runtime) payload.runtime = opts.runtime;
+        if (opts.agentId) payload.agentId = opts.agentId;
+        if (opts.model) payload.model = opts.model;
+        if (opts.thinking) payload.thinking = opts.thinking;
+        if (opts.runTimeoutSeconds) payload.runTimeoutSeconds = opts.runTimeoutSeconds;
+        if (opts.mode) payload.mode = opts.mode;
+        if (opts.cleanup) payload.cleanup = opts.cleanup;
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: this.buildHeaders(),
+                body: JSON.stringify(payload),
+            });
+
+            if (response.status === 401) {
+                const retried = await this.refreshOn401(response);
+                if (retried) return this.spawnSession(task, opts);
+            }
+
+            if (!response.ok) {
+                let errorMsg = `HTTP ${response.status}`;
+                try { errorMsg = await response.text(); } catch { }
+                return { ok: false, error: errorMsg };
+            }
+
+            const data = await response.json();
+            return {
+                ok: true,
+                status: data.status,
+                runId: data.runId,
+                childSessionKey: data.childSessionKey,
+            };
+        } catch (err: any) {
+            return { ok: false, error: err.message };
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    /**
+     * Send a message to an agent via POST /hooks/agent (fire-and-forget).
+     * Uses hook secret auth (x-openclaw-token), not gateway bearer token.
+     */
+    async sendToAgent(payload: Record<string, any>): Promise<{ ok: boolean; status?: string; error?: string }> {
+        const secret = process.env.OPENCLAW_HOOK_SECRET;
+        if (!secret) {
+            return { ok: false, error: 'OPENCLAW_HOOK_SECRET is not configured' };
+        }
+
+        const url = `${this.baseUrl}/hooks/agent`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-openclaw-token': secret,
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                let errorMsg = `HTTP ${response.status}`;
+                try { errorMsg = await response.text(); } catch { }
+                return { ok: false, error: errorMsg };
+            }
+
+            return { ok: true, status: 'accepted' };
+        } catch (err: any) {
+            let code = err.code || 'UNKNOWN_ERROR';
+            if (err.name === 'AbortError') code = 'TIMEOUT_ERROR';
+            return { ok: false, error: `${code}: ${err.message}` };
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    /**
+     * Send a message and get a synchronous reply via POST /v1/chat/completions.
+     * Auth through TokenProvider — gets automatic token refresh on 401.
+     */
+    async chatCompletions(agentId: string, messages: Array<{ role: string; content: string }>, opts: {
+        maxTokens?: number;
+        timeoutMs?: number;
+    } = {}): Promise<{
+        ok: boolean;
+        reply?: string;
+        finishReason?: string;
+        error?: string;
+    }> {
+        const url = `${this.baseUrl}/v1/chat/completions`;
+        const timeoutMs = opts.timeoutMs || 300000;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+        const payload = {
+            model: `openclaw/${agentId}`,
+            messages,
+            max_tokens: opts.maxTokens || 1000,
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: this.buildHeaders(),
+                body: JSON.stringify(payload),
+            });
+
+            if (response.status === 401) {
+                const retried = await this.refreshOn401(response);
+                if (retried) return this.chatCompletions(agentId, messages, opts);
+            }
+
+            if (!response.ok) {
+                let errorMsg = `HTTP ${response.status}`;
+                try { errorMsg = await response.text(); } catch { }
+                return { ok: false, error: errorMsg };
+            }
+
+            const data = await response.json() as any;
+            let content = '';
+            let finishReason = '';
+            if (data.choices && data.choices.length > 0) {
+                content = data.choices[0].message?.content || '';
+                finishReason = data.choices[0].finish_reason || '';
+            }
+
+            return { ok: true, reply: content, finishReason };
+        } catch (err: any) {
+            let code = err.code || 'UNKNOWN_ERROR';
+            if (err.name === 'AbortError') code = 'TIMEOUT_ERROR';
+            return { ok: false, error: `${code}: ${err.message}` };
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    // ─── Token Refresh ─────────────────────────────────────────────────
+
+    /**
+     * On 401, attempt to refresh the token from paired.json and return true
+     * so the caller can retry. Returns false if refresh fails or token unchanged.
+     */
+    private async refreshOn401(response: Response): Promise<boolean> {
+        if (response.status !== 401) return false;
+        const fresh = await this.tokenProvider.refresh();
+        return fresh !== null;
+    }
+
+    // ─── CLI via SSH ───────────────────────────────────────────────────
+
+    /**
+     * Run OpenClaw doctor via SSH.
      */
     async runDoctor(fix: boolean, nonInteractive: boolean): Promise<DoctorResponse> {
         const args = ['doctor'];
         if (fix) args.push('--fix');
         if (nonInteractive) args.push('--non-interactive');
 
-        const stdout = await this.execOpenClaw(args);
-
-        // Output is plain text — wrap it in a DoctorResponse-compatible shape
+        const stdout = await this.execViaSSH(args);
         return { status: 'ok', checks: [], message: stdout };
     }
 
-
     /**
-     * Restart OpenClaw gateway
+     * Get OpenClaw version via SSH.
      */
-    async restartGateway(json: boolean): Promise<RestartResponse> {
-        const args = ['gateway', 'restart'];
-        if (json) args.push('--json');
-
-        const stdout = await this.execOpenClaw(args);
-
-        if (json) {
-            try {
-                return JSON.parse(stdout) as RestartResponse;
-            } catch (err) {
-                throw this.createError('TOOL_ERROR', `Failed to parse restart output as JSON: ${stdout.substring(0, 100)}...`);
-            }
+    async getVersion(): Promise<string | null> {
+        try {
+            const stdout = await this.execViaSSH(['--version']);
+            return stdout || null;
+        } catch {
+            return null;
         }
-
-        return { status: 'restarted', message: 'Assuming success due to non-JSON format' };
     }
 }

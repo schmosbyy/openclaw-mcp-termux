@@ -2,8 +2,8 @@ import { OpenClawGatewayClient } from '../gateway/client.js';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 
-export const strReplaceTool = {
-    name: 'file_str_replace',
+export const fileEditTool = {
+    name: 'file_edit',
     description: 'Replace a unique string in a file with another string. old_str must match the raw file content exactly and appear exactly once. Use this instead of shell-based sed/python for all file edits — content goes through JSON parameters, never a shell, so there are no escaping issues.',
     inputSchema: {
         type: 'object',
@@ -25,7 +25,7 @@ export const strReplaceTool = {
     }
 };
 
-export async function handleStrReplace(
+export async function handleFileEdit(
     client: OpenClawGatewayClient,
     input: any
 ): Promise<{ isError?: boolean; content: Array<{ type: string; text: string }> }> {

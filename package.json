@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "json5": "^2.2.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
