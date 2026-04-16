@@ -39,16 +39,12 @@ export async function handleSystemHealth(
         result.gateway_status = 'unreachable';
     }
 
-    // OpenClaw version
+    // OpenClaw version — via SSH to proot (FS package.json path is unreliable)
     try {
-        const versionPath = path.join(
-            HOME, '.openclaw-android', 'node', 'lib',
-            'node_modules', 'openclaw', 'package.json'
-        );
-        const pkg = JSON.parse(await fs.readFile(versionPath, 'utf-8'));
-        result.openclaw_version = pkg.version || null;
+        const version = await client.getVersion();
+        result.openclaw_version = version;
     } catch {
-        // version file not found
+        // SSH failed
     }
 
     // Memory — parse /proc/meminfo
