@@ -61,33 +61,26 @@ export class OpenClawGatewayClient {
     // ─── Health ────────────────────────────────────────────────────────
 
     /**
-     * Health check via GET /health (38ms, proper endpoint).
-     * Replaces the old malformed chat request hack.
+     * Health check via GET /health through SSH tunnel to proot.
+     * The gateway listens on localhost:18789 inside proot — not accessible
+     * from Termux's network namespace. Must route through ssh proot.
      */
     async getHealth(): Promise<HealthResponse> {
-        const url = `${this.baseUrl}/health`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, 5000));
-
         try {
-            const response = await fetch(url, {
-                method: 'GET',
-                signal: controller.signal,
-            });
-
-            if (response.ok) {
-                const text = await response.text();
-                return { status: 'ok', message: text || 'Healthy' };
+            const { stdout } = await execAsync(
+                `ssh proot "curl -sS -m 5 http://localhost:18789/health"`,
+                { timeout: 10000 }
+            );
+            const text = (stdout || '').trim();
+            if (text) {
+                return { status: 'ok', message: text };
             }
-
-            return { status: 'error', message: `Gateway returned HTTP ${response.status}` };
+            return { status: 'error', message: 'Empty response from /health' };
         } catch (err: any) {
-            if (err.name === 'AbortError') {
-                throw this.createError('GATEWAY_TIMEOUT', `Gateway request timed out after ${this.timeoutMs}ms`);
+            if (err.stdout) {
+                return { status: 'ok', message: err.stdout.trim() || 'Healthy' };
             }
-            throw this.createError('GATEWAY_UNREACHABLE', `Could not connect to OpenClaw gateway at ${this.baseUrl}`, 'Ensure OpenClaw is running: openclaw start');
-        } finally {
-            clearTimeout(timeout);
+            throw this.createError('GATEWAY_UNREACHABLE', `Could not reach OpenClaw gateway via ssh proot: ${err.message}`, 'Ensure OpenClaw is running: openclaw start');
         }
     }
 
