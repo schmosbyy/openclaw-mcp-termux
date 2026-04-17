@@ -23,7 +23,7 @@ The MCP bridge is the transport layer between Claude's compiler and the OpenClaw
 **Key design decisions:**
 - **SSH-first CLI** — all `openclaw` CLI calls route through `ssh proot` (~200ms) instead of the wrapper script (2-10s cold start)
 - **Filesystem-first reads** — config/session/log reads hit files directly (~16ms) instead of shelling out to the CLI
-- **TokenProvider** — reads `paired.json` for live token refresh, handles gateway token rotation mid-session
+- **Env-based auth** — gateway token from `.env` via `dotenv`, resolved relative to script location (handles SSH cwd != project dir)
 - **No Docker** — runs natively in Termux Node.js, OpenClaw runs in proot-Ubuntu
 
 ---
@@ -36,7 +36,7 @@ The MCP bridge is the transport layer between Claude's compiler and the OpenClaw
 |------|-------------|
 | `agent_dispatch` | Send tasks to agents. Three modes: `async` (fire-and-forget via webhook), `sync` (wait for reply), `spawn` (tracked sub-agent delegation with runId). Routes to Tani/Alan/Rachel. |
 | `agent_query` | Multi-view observation. Views: `health` (gateway status), `sessions` (all agent sessions with JSONL metadata), `actions` (active processes + recent tool calls + log tail), `logs` (gateway/command/heartbeat/rclone scenarios), `history` (JSONL transcript read). |
-| `agent_control` | Session management: abort, steer, compact, reset. Uses gateway `/tools/invoke` API with CLI fallback guidance. |
+| `agent_control` | Session management: abort, steer, compact, reset. Returns 404 for all actions — gateway doesn't expose session control via `/tools/invoke` HTTP. Falls back to CLI instructions. |
 
 ### File Operations
 
@@ -66,7 +66,16 @@ The MCP bridge is the transport layer between Claude's compiler and the OpenClaw
    npm install && npm run build
    ```
 
-2. **Configure Claude Desktop** (`claude_desktop_config.json`)
+2. **Create `.env` in the project root**
+   ```bash
+   cat > .env << 'EOF'
+   OPENCLAW_URL=http://127.0.0.1:18789
+   OPENCLAW_GATEWAY_TOKEN=your-gateway-bearer-token
+   OPENCLAW_HOOK_SECRET=your-hook-secret
+   EOF
+   ```
+
+3. **Configure Claude Desktop** (`claude_desktop_config.json`)
    ```json
    {
      "mcpServers": {
@@ -74,12 +83,14 @@ The MCP bridge is the transport layer between Claude's compiler and the OpenClaw
          "command": "/usr/bin/ssh",
          "args": [
            "flip",
-           "OPENCLAW_GATEWAY_TOKEN=your-token OPENCLAW_HOOK_SECRET=your-secret /data/data/com.termux/files/usr/bin/node /data/data/com.termux/files/home/openclaw-mcp-termux/dist/index.js"
+           "/data/data/com.termux/files/usr/bin/node /data/data/com.termux/files/home/openclaw-mcp-termux/dist/index.js"
          ]
        }
      }
    }
    ```
+
+No inline env vars needed — `.env` is loaded from the project directory automatically.
 
 ---
 
@@ -104,11 +115,10 @@ The MCP bridge is the transport layer between Claude's compiler and the OpenClaw
 
 | Variable | Required | Description |
 |---|---|---|
-| `OPENCLAW_GATEWAY_TOKEN` | Yes | Gateway bearer token. `TokenProvider` refreshes from `paired.json` on rotation. |
+| `OPENCLAW_GATEWAY_TOKEN` | Yes | Gateway bearer token from `openclaw.json` (`gateway.auth.token`). Hex format. Not the device operator token from `paired.json`. |
 | `OPENCLAW_HOOK_SECRET` | Yes | Webhook secret for `/hooks/agent` (async dispatch). |
 | `OPENCLAW_URL` | No | Gateway URL (default `http://127.0.0.1:18789`) |
 | `BRIDGE_TOKEN` | HTTP mode | Auth token for remote Claude.ai connections |
-| `OPENCLAW_DEVICE_ID` | No | Device UUID. Auto-detected from `paired.json` if omitted. |
 | `OPENCLAW_TIMEOUT_MS` | No | HTTP timeout (default 660000ms) |
 | `TRANSPORT` | No | `stdio` or `http` (default `stdio`) |
 
@@ -118,13 +128,12 @@ The MCP bridge is the transport layer between Claude's compiler and the OpenClaw
 
 ```
 src/
-├── index.ts              # Entry point, transport selection, token bootstrap
+├── index.ts              # Entry point, transport selection, .env loading
 ├── server.ts             # MCP tool registry (10 tools) + dispatch router
 ├── transport.ts          # stdio vs StreamableHTTP transport
 ├── auth.ts               # Bearer token auth for HTTP mode
 ├── gateway/
-│   ├── client.ts         # GatewayClient — HTTP API + SSH CLI + token refresh
-│   ├── token-provider.ts # Reads paired.json for live token rotation
+│   ├── client.ts         # GatewayClient — HTTP API + SSH CLI
 │   └── types.ts          # TypeScript response interfaces
 └── tools/
     ├── agent_dispatch.ts  # Send to agents (async/sync/spawn)
@@ -145,8 +154,8 @@ src/
 
 | Issue | Resolution |
 |---|---|
-| `Cannot find module` | Run `npm run build` |
+| `Cannot find module` | Run `npm run build`. For clean rebuild: `rm -rf dist/ && npm run build` (tsc doesn't remove stale files). |
 | Server dies after screen lock | Run via `bash scripts/start-tmux.sh` (claims `termux-wake-lock`) |
-| Auth failures after token rotation | `TokenProvider` auto-refreshes. If it can't, check `paired.json` has a valid operator token. |
+| Auth failures | Check `.env` has the correct `OPENCLAW_GATEWAY_TOKEN` — must match `gateway.auth.token` in `openclaw.json`, NOT the device operator token from `paired.json`. |
 | Gateway unreachable | Start it on the device: `~/bin/openclaw-proot.sh` inside Termux |
 | `ssh proot` fails from MCP tools | SSH tunnel dies with gateway. Restart gateway to restore. |
