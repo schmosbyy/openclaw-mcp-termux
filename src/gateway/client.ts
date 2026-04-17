@@ -1,32 +1,27 @@
 import { HealthResponse, SessionsResponse, DoctorResponse, InvokeToolResponse, SpawnSessionResponse } from './types.js';
-import { TokenProvider } from './token-provider.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
+const GATEWAY_TOKEN = () => process.env.OPENCLAW_GATEWAY_TOKEN || '';
 
 export class OpenClawGatewayClient {
     readonly baseUrl: string;
-    private tokenProvider: TokenProvider;
     readonly timeoutMs: number;
 
-    constructor(baseUrl: string, tokenProvider: TokenProvider, timeoutMs: number) {
+    constructor(baseUrl: string, timeoutMs: number) {
         this.baseUrl = baseUrl.replace(/\/$/, '');
-        this.tokenProvider = tokenProvider;
         this.timeoutMs = timeoutMs;
     }
 
-    private buildHeaders(extra?: Record<string, string>): Record<string, string> {
-        const headers: Record<string, string> = {
+    private buildHeaders(): Record<string, string> {
+        const token = GATEWAY_TOKEN();
+        return {
             'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         };
-        const token = this.tokenProvider.getToken();
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
-        return { ...headers, ...extra };
     }
 
     private createError(code: string, message: string, hint?: string) {
@@ -38,7 +33,6 @@ export class OpenClawGatewayClient {
 
     /**
      * Execute an OpenClaw CLI command via SSH to proot (~200ms tunnel + CLI time).
-     * This replaces the old wrapper script approach which had 2-10s cold start.
      * SSH exit code 255 on interactive commands is normal — ignore code, trust stdout.
      */
     private async execViaSSH(args: string[]): Promise<string> {
@@ -50,7 +44,6 @@ export class OpenClawGatewayClient {
             });
             return (stdout || '').trim();
         } catch (err: any) {
-            // SSH returns exit 255 for interactive/TUI commands — output is still valid
             if (err.stdout) {
                 return err.stdout.trim();
             }
@@ -60,11 +53,6 @@ export class OpenClawGatewayClient {
 
     // ─── Health ────────────────────────────────────────────────────────
 
-    /**
-     * Health check via GET /health through SSH tunnel to proot.
-     * The gateway listens on localhost:18789 inside proot — not accessible
-     * from Termux's network namespace. Must route through ssh proot.
-     */
     async getHealth(): Promise<HealthResponse> {
         try {
             const { stdout } = await execAsync(
@@ -86,9 +74,6 @@ export class OpenClawGatewayClient {
 
     // ─── Sessions (filesystem) ─────────────────────────────────────────
 
-    /**
-     * List sessions by reading sessions.json from disk (~16ms).
-     */
     async listSessions(agentId: string = 'main'): Promise<SessionsResponse> {
         const home = process.env.HOME || '/data/data/com.termux/files/home';
         const sessionsPath = path.join(home, '.openclaw', 'agents', agentId, 'sessions', 'sessions.json');
@@ -117,10 +102,6 @@ export class OpenClawGatewayClient {
 
     // ─── Gateway HTTP API ──────────────────────────────────────────────
 
-    /**
-     * Invoke a gateway tool directly via POST /tools/invoke.
-     * Useful for session management, tool execution without a full agent turn.
-     */
     async invokeTool(toolName: string, args: Record<string, any> = {}): Promise<InvokeToolResponse> {
         const url = `${this.baseUrl}/tools/invoke`;
         const controller = new AbortController();
@@ -133,11 +114,6 @@ export class OpenClawGatewayClient {
                 headers: this.buildHeaders(),
                 body: JSON.stringify({ tool: toolName, arguments: args }),
             });
-
-            if (response.status === 401) {
-                const retried = await this.refreshOn401(response);
-                if (retried) return this.invokeTool(toolName, args);
-            }
 
             if (!response.ok) {
                 let errorMsg = `HTTP ${response.status}`;
@@ -154,11 +130,6 @@ export class OpenClawGatewayClient {
         }
     }
 
-    /**
-     * Spawn a sub-agent session via POST /sessions_spawn.
-     * Non-blocking — returns immediately with runId + childSessionKey.
-     * This is the proper parent→child delegation mechanism for the God Orchestrator pattern.
-     */
     async spawnSession(task: string, opts: {
         runtime?: string;
         agentId?: string;
@@ -188,11 +159,6 @@ export class OpenClawGatewayClient {
                 headers: this.buildHeaders(),
                 body: JSON.stringify(payload),
             });
-
-            if (response.status === 401) {
-                const retried = await this.refreshOn401(response);
-                if (retried) return this.spawnSession(task, opts);
-            }
 
             if (!response.ok) {
                 let errorMsg = `HTTP ${response.status}`;
@@ -257,7 +223,6 @@ export class OpenClawGatewayClient {
 
     /**
      * Send a message and get a synchronous reply via POST /v1/chat/completions.
-     * Auth through TokenProvider — gets automatic token refresh on 401.
      */
     async chatCompletions(agentId: string, messages: Array<{ role: string; content: string }>, opts: {
         maxTokens?: number;
@@ -287,11 +252,6 @@ export class OpenClawGatewayClient {
                 body: JSON.stringify(payload),
             });
 
-            if (response.status === 401) {
-                const retried = await this.refreshOn401(response);
-                if (retried) return this.chatCompletions(agentId, messages, opts);
-            }
-
             if (!response.ok) {
                 let errorMsg = `HTTP ${response.status}`;
                 try { errorMsg = await response.text(); } catch { }
@@ -316,23 +276,8 @@ export class OpenClawGatewayClient {
         }
     }
 
-    // ─── Token Refresh ─────────────────────────────────────────────────
-
-    /**
-     * On 401, attempt to refresh the token from paired.json and return true
-     * so the caller can retry. Returns false if refresh fails or token unchanged.
-     */
-    private async refreshOn401(response: Response): Promise<boolean> {
-        if (response.status !== 401) return false;
-        const fresh = await this.tokenProvider.refresh();
-        return fresh !== null;
-    }
-
     // ─── CLI via SSH ───────────────────────────────────────────────────
 
-    /**
-     * Run OpenClaw doctor via SSH.
-     */
     async runDoctor(fix: boolean, nonInteractive: boolean): Promise<DoctorResponse> {
         const args = ['doctor'];
         if (fix) args.push('--fix');
@@ -342,9 +287,6 @@ export class OpenClawGatewayClient {
         return { status: 'ok', checks: [], message: stdout };
     }
 
-    /**
-     * Get OpenClaw version via SSH.
-     */
     async getVersion(): Promise<string | null> {
         try {
             const stdout = await this.execViaSSH(['--version']);
