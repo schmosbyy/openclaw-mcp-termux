@@ -131,7 +131,7 @@ export class OpenClawGatewayClient {
                 method: 'POST',
                 signal: controller.signal,
                 headers: this.buildHeaders(),
-                body: JSON.stringify({ tool_name: toolName, arguments: args }),
+                body: JSON.stringify({ tool: toolName, arguments: args }),
             });
 
             if (response.status === 401) {
