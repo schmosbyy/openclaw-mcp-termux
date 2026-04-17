@@ -1,5 +1,10 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import * as path from 'node:path';
 import * as http from 'node:http';
+
+// Load .env from the project root (parent of dist/), not from cwd.
+// SSH commands set cwd to $HOME, not the project directory.
+loadEnv({ path: path.join(import.meta.dirname, '..', '.env') });
 import { OpenClawGatewayClient } from './gateway/client.js';
 import { createServer } from './server.js';
 import { createTransport } from './transport.js';
