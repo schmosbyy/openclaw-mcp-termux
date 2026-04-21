@@ -35,11 +35,11 @@ export class OpenClawGatewayClient {
      * Execute an OpenClaw CLI command via SSH to proot (~200ms tunnel + CLI time).
      * SSH exit code 255 on interactive commands is normal — ignore code, trust stdout.
      */
-    private async execViaSSH(args: string[]): Promise<string> {
+    private async execViaSSH(args: string[], timeoutMs: number = 60000): Promise<string> {
         const command = `ssh proot "openclaw ${args.join(' ')}"`;
         try {
             const { stdout, stderr } = await execAsync(command, {
-                timeout: 60000,
+                timeout: timeoutMs,
                 maxBuffer: 10 * 1024 * 1024
             });
             return (stdout || '').trim();
@@ -283,7 +283,7 @@ export class OpenClawGatewayClient {
         if (fix) args.push('--fix');
         if (nonInteractive) args.push('--non-interactive');
 
-        const stdout = await this.execViaSSH(args);
+        const stdout = await this.execViaSSH(args, 180000);
         return { status: 'ok', checks: [], message: stdout };
     }
 
