@@ -1,6 +1,6 @@
 import { OpenClawGatewayClient } from '../gateway/client.js';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
+import { resolvePath } from '../utils/paths.js';
 
 export const fileReadTool = {
     name: 'file_read',
@@ -10,7 +10,7 @@ export const fileReadTool = {
         properties: {
             path: {
                 type: 'string',
-                description: 'Absolute path to the file. Tilde (~) is expanded to the home directory.'
+                description: 'Absolute path to the file. Tilde (~) is expanded to the proot home directory.'
             },
             start_line: {
                 type: 'number',
@@ -37,7 +37,7 @@ export async function handleFileRead(
         return { isError: true, content: [{ type: 'text', text: 'path is required' }] };
     }
 
-    const resolvedPath = rawPath.replace(/^~(?=$|\/)/, os.homedir());
+    const resolvedPath = resolvePath(rawPath);
 
     // Validate line range inputs before reading
     const hasStart = input.start_line !== undefined && input.start_line !== null;

@@ -1,6 +1,6 @@
 import { OpenClawGatewayClient } from '../gateway/client.js';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
+import { resolvePath } from '../utils/paths.js';
 
 export const fileEditTool = {
     name: 'file_edit',
@@ -10,7 +10,7 @@ export const fileEditTool = {
         properties: {
             path: {
                 type: 'string',
-                description: 'Absolute path to the file to edit. Tilde (~) is expanded to the home directory.'
+                description: 'Absolute path to the file to edit. Tilde (~) is expanded to the proot home directory.'
             },
             old_str: {
                 type: 'string',
@@ -40,8 +40,8 @@ export async function handleFileEdit(
         return { isError: true, content: [{ type: 'text', text: 'old_str is required and cannot be empty' }] };
     }
 
-    // Expand tilde
-    const resolvedPath = rawPath.replace(/^~(?=$|\/)/, os.homedir());
+    // Expand tilde to proot home
+    const resolvedPath = resolvePath(rawPath);
 
     try {
         const content = await fs.readFile(resolvedPath, 'utf-8');

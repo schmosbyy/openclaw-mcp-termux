@@ -1,7 +1,7 @@
 import { OpenClawGatewayClient } from '../gateway/client.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { resolvePath } from '../utils/paths.js';
 
 export const fileWriteTool = {
     name: 'file_write',
@@ -11,7 +11,7 @@ export const fileWriteTool = {
         properties: {
             path: {
                 type: 'string',
-                description: 'Absolute path to the file to write. Tilde (~) is expanded to the home directory.'
+                description: 'Absolute path to the file to write. Tilde (~) is expanded to the proot home directory.'
             },
             content: {
                 type: 'string',
@@ -33,7 +33,7 @@ export async function handleFileWrite(
         return { isError: true, content: [{ type: 'text', text: 'path is required' }] };
     }
 
-    const resolvedPath = rawPath.replace(/^~(?=$|\/)/, os.homedir());
+    const resolvedPath = resolvePath(rawPath);
 
     try {
         await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
